@@ -5,6 +5,8 @@ from langchain_core.messages import BaseMessage
 
 
 class CandidateRetriever(ABC):
+    name: str
+
     @abstractmethod
     def retrieve(self, query: str) -> list[Document]: ...
 

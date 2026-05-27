@@ -8,8 +8,8 @@ class ConversationalRecommendationService:
         self._recommender = recommender
         self._history: list[BaseMessage] = []
 
-    def chat(self, question: str) -> str:
-        answer = self._recommender.recommend(question, self._history)
+    def chat(self, question: str, verbose: bool = False) -> str:
+        answer = self._recommender.recommend(question, self._history, verbose=verbose)
         self._history.append(HumanMessage(content=question))
         self._history.append(AIMessage(content=answer))
         return answer

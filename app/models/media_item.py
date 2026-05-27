@@ -45,4 +45,12 @@ class MediaItem:
             f"Genres: {', '.join(self.genres)}\n"
             f"Synopsis: {self.synopsis}"
         )
-        return Document(page_content=content, metadata=self.to_metadata())
+        metadata = self.to_metadata()
+        metadata["embedding_type"] = "synopsis"
+        return Document(page_content=content, metadata=metadata)
+
+    def to_enriched_document(self, enrichment_text: str, section: str) -> Document:
+        metadata = self.to_metadata()
+        metadata["embedding_type"] = "enriched"
+        metadata["section"] = section
+        return Document(page_content=enrichment_text, metadata=metadata)

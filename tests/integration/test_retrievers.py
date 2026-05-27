@@ -3,7 +3,12 @@ from unittest.mock import MagicMock
 import pytest
 from langchain_core.documents import Document
 
-from app.adapters.retrievers import HyDEVectorRetriever, LLMKnowledgeRetriever
+from app.adapters.retrievers import (
+    DirectSynopsisRetriever,
+    HyDEVectorRetriever,
+    LLMEnrichmentRetriever,
+    LLMKnowledgeRetriever,
+)
 
 
 def make_doc(imdb_id: str, title: str) -> Document:
@@ -42,7 +47,16 @@ def test_hyde_retriever_embeds_hypothetical_doc(hyde_retriever):
 def test_hyde_retriever_searches_by_vector(hyde_retriever):
     retriever, mock_vector_store, _ = hyde_retriever
     retriever.retrieve("recommend a thriller")
-    mock_vector_store.similarity_search_by_vector.assert_called_once_with([0.1, 0.2, 0.3], k=8)
+    call_kwargs = mock_vector_store.similarity_search_by_vector.call_args.kwargs
+    assert call_kwargs["filter"] is not None
+    assert mock_vector_store.similarity_search_by_vector.call_args[0][0] == [0.1, 0.2, 0.3]
+
+
+def test_hyde_retriever_filter_targets_enriched_embedding_type(hyde_retriever):
+    retriever, mock_vector_store, _ = hyde_retriever
+    retriever.retrieve("recommend a thriller")
+    f = mock_vector_store.similarity_search_by_vector.call_args.kwargs["filter"]
+    assert f.must[0].match.value == "enriched"
 
 
 def test_hyde_retriever_returns_docs(hyde_retriever):
@@ -57,10 +71,11 @@ def test_hyde_retriever_respects_k():
     mock_embeddings = MagicMock()
     mock_embeddings.embed_documents.return_value = [[0.0]]
     retriever = HyDEVectorRetriever(mock_vector_store, mock_embeddings, MagicMock(), k=3)
-    retriever._chain = MagicMock(return_value="synopsis")
-    retriever._chain.invoke.return_value = "synopsis"
+    retriever._chain = MagicMock(return_value="profile")
+    retriever._chain.invoke.return_value = "profile"
     retriever.retrieve("query")
-    mock_vector_store.similarity_search_by_vector.assert_called_once_with([0.0], k=3)
+    call_kwargs = mock_vector_store.similarity_search_by_vector.call_args.kwargs
+    assert call_kwargs["k"] == 3
 
 
 # --- LLMKnowledgeRetriever ---
@@ -120,3 +135,105 @@ def test_llm_retriever_passes_question_and_movie_list(llm_retriever):
     call_args = llm_retriever._chain.invoke.call_args[0][0]
     assert call_args["question"] == "something tense"
     assert call_args["movie_list"] == "- Parasite\n- Oldboy"
+
+
+# --- LLMEnrichmentRetriever ---
+
+
+def make_enrichment_retriever(filter_by_type: bool = True, k: int = 8):
+    mock_vector_store = MagicMock()
+    mock_embeddings = MagicMock()
+    mock_embeddings.embed_documents.return_value = [[0.1, 0.2, 0.3]]
+    mock_vector_store.similarity_search_by_vector.return_value = [make_doc("tt001", "Parasite")]
+    retriever = LLMEnrichmentRetriever(mock_vector_store, mock_embeddings, k=k, filter_by_type=filter_by_type)
+    return retriever, mock_vector_store, mock_embeddings
+
+
+def test_enrichment_retriever_embeds_query_directly():
+    retriever, _, mock_embeddings = make_enrichment_retriever()
+    retriever.retrieve("something Kubrickian")
+    mock_embeddings.embed_documents.assert_called_once_with(["something Kubrickian"])
+
+
+def test_enrichment_retriever_does_not_use_an_llm():
+    # Unlike HyDE, there is no _chain — embedding is the only API call
+    retriever, _, _ = make_enrichment_retriever()
+    assert not hasattr(retriever, "_chain")
+
+
+def test_enrichment_retriever_passes_filter_when_filter_by_type_true():
+    retriever, mock_vs, _ = make_enrichment_retriever(filter_by_type=True)
+    retriever.retrieve("query")
+    call_kwargs = mock_vs.similarity_search_by_vector.call_args.kwargs
+    assert call_kwargs["filter"] is not None
+
+
+def test_enrichment_retriever_filter_targets_enriched_embedding_type():
+    retriever, mock_vs, _ = make_enrichment_retriever(filter_by_type=True)
+    retriever.retrieve("query")
+    f = mock_vs.similarity_search_by_vector.call_args.kwargs["filter"]
+    assert f.must[0].match.value == "enriched"
+
+
+def test_enrichment_retriever_passes_no_filter_when_filter_by_type_false():
+    retriever, mock_vs, _ = make_enrichment_retriever(filter_by_type=False)
+    retriever.retrieve("query")
+    call_kwargs = mock_vs.similarity_search_by_vector.call_args.kwargs
+    assert call_kwargs["filter"] is None
+
+
+def test_enrichment_retriever_respects_k():
+    retriever, mock_vs, _ = make_enrichment_retriever(k=4)
+    retriever.retrieve("query")
+    call_kwargs = mock_vs.similarity_search_by_vector.call_args.kwargs
+    assert call_kwargs["k"] == 4
+
+
+def test_enrichment_retriever_returns_docs_from_vector_store():
+    retriever, _, _ = make_enrichment_retriever()
+    docs = retriever.retrieve("something Kubrickian")
+    assert len(docs) == 1
+    assert docs[0].metadata["imdb_id"] == "tt001"
+
+
+# --- DirectSynopsisRetriever ---
+
+
+def make_synopsis_retriever(k: int = 8):
+    mock_vector_store = MagicMock()
+    mock_embeddings = MagicMock()
+    mock_embeddings.embed_documents.return_value = [[0.1, 0.2, 0.3]]
+    mock_vector_store.similarity_search_by_vector.return_value = [make_doc("tt001", "Parasite")]
+    retriever = DirectSynopsisRetriever(mock_vector_store, mock_embeddings, k=k)
+    return retriever, mock_vector_store, mock_embeddings
+
+
+def test_synopsis_retriever_embeds_query_directly():
+    retriever, _, mock_embeddings = make_synopsis_retriever()
+    retriever.retrieve("something Tarkovsky-esque")
+    mock_embeddings.embed_documents.assert_called_once_with(["something Tarkovsky-esque"])
+
+
+def test_synopsis_retriever_does_not_use_an_llm():
+    retriever, _, _ = make_synopsis_retriever()
+    assert not hasattr(retriever, "_chain")
+
+
+def test_synopsis_retriever_passes_filter_targeting_synopsis_type():
+    retriever, mock_vs, _ = make_synopsis_retriever()
+    retriever.retrieve("query")
+    f = mock_vs.similarity_search_by_vector.call_args.kwargs["filter"]
+    assert f.must[0].match.value == "synopsis"
+
+
+def test_synopsis_retriever_respects_k():
+    retriever, mock_vs, _ = make_synopsis_retriever(k=5)
+    retriever.retrieve("query")
+    assert mock_vs.similarity_search_by_vector.call_args.kwargs["k"] == 5
+
+
+def test_synopsis_retriever_returns_docs_from_vector_store():
+    retriever, _, _ = make_synopsis_retriever()
+    docs = retriever.retrieve("a heist film")
+    assert len(docs) == 1
+    assert docs[0].metadata["imdb_id"] == "tt001"

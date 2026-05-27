@@ -7,6 +7,7 @@ from langchain_core.embeddings import Embeddings
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_qdrant import QdrantVectorStore
 
 from app.services.vector_store import VectorStoreService
 
@@ -47,7 +48,7 @@ TEST_DOCS = [
             "Synopsis: A poor Korean family schemes their way into the lives of a wealthy family, "
             "leading to an explosive confrontation about class and greed."
         ),
-        metadata={"imdb_id": "tt6751668", "title": "Parasite", "year": 2019},
+        metadata={"imdb_id": "tt6751668", "title": "Parasite", "year": 2019, "embedding_type": "synopsis"},
     ),
     Document(
         page_content=(
@@ -56,7 +57,7 @@ TEST_DOCS = [
             "Synopsis: A man is imprisoned for 15 years without explanation, then released and given "
             "five days to find out why."
         ),
-        metadata={"imdb_id": "tt0364569", "title": "Oldboy", "year": 2003},
+        metadata={"imdb_id": "tt0364569", "title": "Oldboy", "year": 2003, "embedding_type": "synopsis"},
     ),
     Document(
         page_content=(
@@ -65,7 +66,7 @@ TEST_DOCS = [
             "Synopsis: A woman is hired as a handmaiden to a Japanese heiress, but is secretly "
             "involved in a plot to defraud her."
         ),
-        metadata={"imdb_id": "tt4016934", "title": "The Handmaiden", "year": 2016},
+        metadata={"imdb_id": "tt4016934", "title": "The Handmaiden", "year": 2016, "embedding_type": "synopsis"},
     ),
 ]
 
@@ -76,12 +77,17 @@ def stub_embeddings() -> StubEmbeddings:
 
 
 @pytest.fixture(scope="module")
-def qdrant_store(stub_embeddings) -> Iterator:
+def vs_service(stub_embeddings) -> Iterator[VectorStoreService]:
     with tempfile.TemporaryDirectory() as tmpdir:
         service = VectorStoreService(
             embeddings=stub_embeddings,
             path=tmpdir,
             collection_name="test_movies",
         )
-        store = service.load_or_build(TEST_DOCS)
-        yield store
+        service.load_or_build(TEST_DOCS)
+        yield service
+
+
+@pytest.fixture(scope="module")
+def qdrant_store(vs_service) -> QdrantVectorStore:
+    return vs_service.store

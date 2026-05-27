@@ -1,7 +1,7 @@
 import pytest
 
 from app.adapters.generators import GeminiQueryRewriter, GeminiRecommendationGenerator
-from app.adapters.retrievers import HyDEVectorRetriever, LLMKnowledgeRetriever
+from app.adapters.retrievers import HyDEVectorRetriever, LLMEnrichmentRetriever, LLMKnowledgeRetriever
 from app.domain.recommender import MovieRecommender
 from app.services.recommendation import ConversationalRecommendationService
 from tests.e2e.conftest import TEST_DOCS, StubLLM
@@ -26,6 +26,8 @@ def service(qdrant_store, stub_embeddings):
         retrievers=[
             HyDEVectorRetriever(qdrant_store, stub_embeddings, hyde_llm),
             LLMKnowledgeRetriever(knowledge_llm, MOVIE_LIST, DOC_BY_TITLE),
+            # No enriched docs in the shared fixture store — retriever returns empty, pipeline degrades gracefully
+            LLMEnrichmentRetriever(qdrant_store, stub_embeddings),
         ],
         generator=GeminiRecommendationGenerator(generator_llm),
         rewriter=GeminiQueryRewriter(rewriter_llm),
@@ -54,6 +56,7 @@ def test_follow_up_question_uses_rewriter(qdrant_store, stub_embeddings):
         retrievers=[
             HyDEVectorRetriever(qdrant_store, stub_embeddings, hyde_llm),
             LLMKnowledgeRetriever(knowledge_llm, MOVIE_LIST, DOC_BY_TITLE),
+            LLMEnrichmentRetriever(qdrant_store, stub_embeddings),
         ],
         generator=GeminiRecommendationGenerator(generator_llm),
         rewriter=GeminiQueryRewriter(rewriter_llm),
@@ -91,6 +94,7 @@ def test_knowledge_retriever_contributes_docs_to_context(qdrant_store, stub_embe
         retrievers=[
             HyDEVectorRetriever(qdrant_store, stub_embeddings, hyde_llm),
             LLMKnowledgeRetriever(knowledge_llm, MOVIE_LIST, DOC_BY_TITLE),
+            LLMEnrichmentRetriever(qdrant_store, stub_embeddings),
         ],
         generator=CapturingGenerator(StubLLM(responses=["answer"])),
         rewriter=GeminiQueryRewriter(StubLLM(responses=[REWRITER_RESPONSE])),

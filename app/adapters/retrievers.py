@@ -6,19 +6,44 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_qdrant import QdrantVectorStore
+from qdrant_client.models import FieldCondition, Filter, MatchValue
 
 from app.domain.ports import CandidateRetriever
 
 
+class DirectSynopsisRetriever(CandidateRetriever):
+    name = "synopsis"
+
+    def __init__(
+        self,
+        vector_store: QdrantVectorStore,
+        embeddings: GoogleGenerativeAIEmbeddings,
+        k: int = 8,
+    ) -> None:
+        self._vector_store = vector_store
+        self._embeddings = embeddings
+        self._k = k
+        self._filter = Filter(must=[FieldCondition(key="metadata.embedding_type", match=MatchValue(value="synopsis"))])
+
+    def retrieve(self, query: str) -> list[Document]:
+        vector = self._embeddings.embed_documents([query])[0]
+        return self._vector_store.similarity_search_by_vector(vector, k=self._k, filter=self._filter)
+
+
 class HyDEVectorRetriever(CandidateRetriever):
+    name = "hyde"
+
     _prompt = ChatPromptTemplate.from_messages(
         [
             (
                 "human",
                 (
-                    "Write a brief fictional movie synopsis (3-4 sentences) that would perfectly match "
-                    "this request. Focus on themes, tone, and style. Output only the synopsis, nothing else."
-                    "\n\nRequest: {question}"
+                    "Write a dense expert film profile (4-6 sentences) describing the ideal film for "
+                    "this request. Use precise critical vocabulary: exact subgenre labels, cinematic "
+                    "movements, director names and influences, tone and mood descriptors, thematic "
+                    "keywords, narrative structure, emotional register, visual style, and pacing. "
+                    "Every word should serve as a retrieval signal for finding real films that match. "
+                    "Output only the profile, nothing else.\n\nRequest: {question}"
                 ),
             ),
         ]
@@ -29,20 +54,23 @@ class HyDEVectorRetriever(CandidateRetriever):
         vector_store: QdrantVectorStore,
         embeddings: GoogleGenerativeAIEmbeddings,
         llm: ChatGoogleGenerativeAI,
-        k: int = 8,
+        k: int = 20,
     ) -> None:
         self._vector_store = vector_store
         self._embeddings = embeddings
         self._chain = self._prompt | llm | StrOutputParser()
         self._k = k
+        self._filter = Filter(must=[FieldCondition(key="metadata.embedding_type", match=MatchValue(value="enriched"))])
 
     def retrieve(self, query: str) -> list[Document]:
         hypothetical = self._chain.invoke({"question": query})
         vector = self._embeddings.embed_documents([hypothetical])[0]
-        return self._vector_store.similarity_search_by_vector(vector, k=self._k)
+        return self._vector_store.similarity_search_by_vector(vector, k=self._k, filter=self._filter)
 
 
 class LLMKnowledgeRetriever(CandidateRetriever):
+    name = "llm-knowledge"
+
     _prompt = ChatPromptTemplate.from_messages(
         [
             (
@@ -78,3 +106,27 @@ class LLMKnowledgeRetriever(CandidateRetriever):
         except json.JSONDecodeError:
             titles = []
         return [self._doc_by_title[t.lower()] for t in titles if t.lower() in self._doc_by_title]
+
+
+class LLMEnrichmentRetriever(CandidateRetriever):
+    name = "enricher"
+
+    def __init__(
+        self,
+        vector_store: QdrantVectorStore,
+        embeddings: GoogleGenerativeAIEmbeddings,
+        k: int = 8,
+        filter_by_type: bool = True,
+    ) -> None:
+        self._vector_store = vector_store
+        self._embeddings = embeddings
+        self._k = k
+        self._filter = (
+            Filter(must=[FieldCondition(key="metadata.embedding_type", match=MatchValue(value="enriched"))])
+            if filter_by_type
+            else None
+        )
+
+    def retrieve(self, query: str) -> list[Document]:
+        vector = self._embeddings.embed_documents([query])[0]
+        return self._vector_store.similarity_search_by_vector(vector, k=self._k, filter=self._filter)

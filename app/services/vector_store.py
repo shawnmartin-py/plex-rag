@@ -27,12 +27,14 @@ class VectorStoreService:
     def load_or_build(self, documents: list[Document]) -> QdrantVectorStore:
         if self._client.collection_exists(self._collection_name):
             print("Loading existing vector store...")
-            return QdrantVectorStore(
+            self._store = QdrantVectorStore(
                 client=self._client,
                 collection_name=self._collection_name,
                 embedding=self._embeddings,
             )
-        return self._build(documents)
+        else:
+            self._store = self._build(documents)
+        return self._store
 
     def _build(self, documents: list[Document]) -> QdrantVectorStore:
         print(f"Building vector store from {len(documents)} items...")
@@ -53,6 +55,17 @@ class VectorStoreService:
                 time.sleep(INTER_BATCH_DELAY)
         print("Done.")
         return store
+
+    @property
+    def client(self) -> QdrantClient:
+        return self._client
+
+    @property
+    def store(self) -> QdrantVectorStore:
+        return self._store
+
+    def add_documents_with_retry(self, documents: list[Document]) -> None:
+        self._add_with_retry(self._store, documents)
 
     def close(self) -> None:
         self._client.close()
