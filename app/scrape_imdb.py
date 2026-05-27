@@ -24,9 +24,7 @@ with sync_playwright() as p:
         )
     )
     page = context.new_page()
-    page.add_init_script(
-        "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-    )
+    page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
     for item in items_to_fill:
         if item.imdb_id in movies_to_skip:

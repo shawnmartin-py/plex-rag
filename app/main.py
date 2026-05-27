@@ -32,9 +32,7 @@ if new_items:
             )
         )
         page = context.new_page()
-        page.add_init_script(
-            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-        )
+        page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
         for item in new_items:
             synopsis = fetch_synopsis(page, item.imdb_id, item.title, item.year)
