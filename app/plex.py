@@ -4,8 +4,6 @@ from plexapi.server import PlexServer
 
 from app.models.media_item import MediaItem
 
-# {'gb/PG', 'gb/U', 'gb/12', 'gb/12A', 'Not Rated', 'gb/15', 'gb/18', 'R'}
-
 
 class Plex:
     class MediaType(Enum):
@@ -15,7 +13,7 @@ class Plex:
     def __init__(self):
         self.server = PlexServer()
 
-    def get_media_items(self, media_types: set[MediaType] | None = None, unwatched: bool = True):
+    def get_media_items(self, media_types: set[MediaType] | None = None, unwatched: bool = True) -> list[MediaItem]:
         if media_types is None:
             media_types = {self.MediaType.SHOW, self.MediaType.MOVIE}
         media_items = []

@@ -1,7 +1,7 @@
 [project]
 name = "plex-project"
 version = "0.1.0"
-description = "Add your description here"
+description = "Sync your Plex library and get AI-powered movie recommendations via RAG"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [

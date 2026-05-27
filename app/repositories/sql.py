@@ -7,7 +7,6 @@ from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
     mapped_column,
-    registry,
     sessionmaker,
 )
 
@@ -21,7 +20,6 @@ class SqlMediaItems(BaseRepo):
         engine = create_engine(db_url)
         self.Session = sessionmaker(engine)
         Base.metadata.create_all(engine)
-        registry().map_imperatively(MediaItem, TableMediaItem.__table__)
 
     def load(self) -> list[MediaItem]:
         with self.Session() as session:
@@ -32,7 +30,7 @@ class SqlMediaItems(BaseRepo):
 
     def save(self, media_items: list[MediaItem]):
         with self.Session.begin() as session:
-            query = insert(MediaItem).values([asdict(media_item) for media_item in media_items])
+            query = insert(TableMediaItem).values([asdict(media_item) for media_item in media_items])
             upsert = query.on_conflict_do_update(index_elements=["imdb_id"], set_={**query.excluded})
             session.execute(upsert)
 

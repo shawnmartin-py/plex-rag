@@ -21,5 +21,7 @@ def browser_context() -> BrowserContext:
         try:
             yield context
         finally:
-            context.close()
-            browser.close()
+            try:
+                context.close()
+            finally:
+                browser.close()
