@@ -6,6 +6,10 @@ from langchain_core.messages import AIMessage, HumanMessage
 from app.adapters.generators import GeminiQueryRewriter, GeminiRecommendationGenerator
 
 
+def _system_template(generator: GeminiRecommendationGenerator) -> str:
+    return generator._chain.steps[0].messages[0].prompt.template
+
+
 @pytest.fixture
 def rewriter():
     instance = GeminiQueryRewriter(MagicMock())
@@ -17,6 +21,14 @@ def rewriter():
 @pytest.fixture
 def generator():
     instance = GeminiRecommendationGenerator(MagicMock())
+    instance._chain = MagicMock()
+    instance._chain.invoke.return_value = "here are my recommendations"
+    return instance
+
+
+@pytest.fixture
+def spoiler_free_generator():
+    instance = GeminiRecommendationGenerator(MagicMock(), spoiler_free=True)
     instance._chain = MagicMock()
     instance._chain.invoke.return_value = "here are my recommendations"
     return instance
@@ -74,3 +86,45 @@ def test_generator_passes_history(generator):
     generator.generate("question", "context", history=history)
     call_args = generator._chain.invoke.call_args[0][0]
     assert call_args["chat_history"] == history
+
+
+# --- GeminiRecommendationGenerator spoiler_free flag ---
+
+
+def test_generator_default_prompt_allows_plot_details():
+    instance = GeminiRecommendationGenerator(MagicMock())
+    assert "Do NOT reveal" not in _system_template(instance)
+
+
+def test_generator_spoiler_free_prompt_prohibits_spoilers():
+    instance = GeminiRecommendationGenerator(MagicMock(), spoiler_free=True)
+    assert "Do NOT reveal" in _system_template(instance)
+
+
+def test_generator_spoiler_free_false_matches_default():
+    default = GeminiRecommendationGenerator(MagicMock())
+    explicit_false = GeminiRecommendationGenerator(MagicMock(), spoiler_free=False)
+    assert _system_template(default) == _system_template(explicit_false)
+
+
+def test_generator_spoiler_free_default_differs_from_spoiler_free():
+    default = GeminiRecommendationGenerator(MagicMock())
+    sf = GeminiRecommendationGenerator(MagicMock(), spoiler_free=True)
+    assert _system_template(default) != _system_template(sf)
+
+
+def test_spoiler_free_generator_returns_answer(spoiler_free_generator):
+    result = spoiler_free_generator.generate("recommend a thriller", "some context", history=[])
+    assert result == "here are my recommendations"
+
+
+def test_spoiler_free_generator_passes_question(spoiler_free_generator):
+    spoiler_free_generator.generate("recommend a thriller", "context", history=[])
+    call_args = spoiler_free_generator._chain.invoke.call_args[0][0]
+    assert call_args["input"] == "recommend a thriller"
+
+
+def test_spoiler_free_generator_passes_context(spoiler_free_generator):
+    spoiler_free_generator.generate("question", "Title: Parasite", history=[])
+    call_args = spoiler_free_generator._chain.invoke.call_args[0][0]
+    assert call_args["context"] == "Title: Parasite"

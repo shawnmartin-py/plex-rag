@@ -75,7 +75,7 @@ def _fetch_wikipedia(title: str, year: int) -> str | None:
         next_section = rest.find("\n==")
         return rest[:next_section].strip() if next_section > 0 else rest.strip()
 
-    except Exception as e:
+    except (requests.RequestException, KeyError, StopIteration, ValueError) as e:
         print(f"  !! Wikipedia error: {e}")
         return None
 

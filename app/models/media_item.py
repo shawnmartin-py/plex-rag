@@ -17,12 +17,15 @@ class MediaItem:
 
     @classmethod
     def from_plex(cls, plex_item) -> Self:
+        imdb_guid = next((g for g in plex_item.guids if g.id.startswith("imdb://")), None)
+        if imdb_guid is None:
+            raise ValueError(f"No IMDb GUID found for '{plex_item.title}'")
         return cls(
-            imdb_id=plex_item.guids[0].id.replace("imdb://", ""),
+            imdb_id=imdb_guid.id.replace("imdb://", ""),
             title=plex_item.title,
             type=plex_item.type,
             year=plex_item.year,
-            imdb_rating=plex_item.ratings[0].value,
+            imdb_rating=plex_item.ratings[0].value if plex_item.ratings else 0.0,
             content_rating=plex_item.contentRating,
             genres=[genre.tag for genre in plex_item.genres],
             synopsis=None,

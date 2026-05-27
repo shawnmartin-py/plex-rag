@@ -13,6 +13,10 @@ class BaseRepo(ABC):
     @abstractmethod
     def save(self, media_items: list[MediaItem]): ...
 
+    @property
+    def loaded_ids(self) -> set[str]:
+        return set(self._cached_items.keys())
+
     def _load_cache(self, media_items: list[MediaItem]):
         self._cached_items = {item.imdb_id: item for item in media_items}
 

@@ -8,23 +8,24 @@ from app.repositories.base import BaseRepo
 
 
 class JsonMediaItems(BaseRepo):
-    path = "media_items.json"
+    def __init__(self, path: str = "media_items.json"):
+        super().__init__()
+        self.path = path
 
     def load(self) -> list[BaseMediaItem]:
         with open(self.path, "r") as file:
             item_dict = json.load(file)
-        items = [
-            BaseMediaItem(title=key, **values) for key, values in item_dict.items()
-        ]
+        items = [BaseMediaItem(title=key, **values) for key, values in item_dict.items()]
         self._load_cache(items)
         return items
 
     def save(self, media_items: list[BaseMediaItem]):
-        media_items = self.load() + media_items
-        items = [MediaItem.from_media_item(media_item) for media_item in media_items]
+        merged = {**self._cached_items, **{item.imdb_id: item for item in media_items}}
+        items = [MediaItem.from_media_item(item) for item in merged.values()]
         item_dict = {item.title: item.model_dump(exclude={"title"}) for item in items}
         with open(self.path, "w") as file:
             json.dump(item_dict, file, indent=4)
+        self._load_cache(list(merged.values()))
 
 
 class MediaItem(BaseModel, BaseMediaItem):

@@ -15,7 +15,14 @@ dependencies = [
     "qdrant-client>=1.18.0",
     "requests>=2.34.2",
     "sqlalchemy>=2.0.50",
+    "typer>=0.15.0",
 ]
+
+[project.scripts]
+plex-rag = "app.cli:app"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
 
 [dependency-groups]
 dev = [
