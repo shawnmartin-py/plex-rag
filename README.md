@@ -43,8 +43,27 @@ The strict constraint throughout is that it only recommends movies from your lib
 ### Prerequisites
 
 - Python 3.14+
-- A running Plex Media Server (configured via `~/.config/plexapi/config.ini` or environment variables)
-- A Google Gemini API key set as `GOOGLE_API_KEY`
+- A running Plex Media Server
+- A Google Gemini API key
+
+### Environment variables
+
+Create a `.env` file in the project root (or export these in your shell):
+
+| Variable | Required | Description |
+|---|---|---|
+| `GOOGLE_API_KEY` | Yes | Google Gemini API key — used for embeddings and generation |
+| `PLEXAPI_AUTH_SERVER_BASEURL` | Yes | Base URL of your Plex server, e.g. `http://192.168.1.10:32400` |
+| `PLEXAPI_AUTH_SERVER_TOKEN` | Yes | Plex authentication token — find it in Plex Web under Settings → Account → XML |
+| `PYTHONPATH` | No | Set to the project root if running without `uv run` or the installed CLI |
+
+Alternatively, Plex credentials can be placed in `~/.config/plexapi/config.ini`:
+
+```ini
+[auth]
+server_baseurl = http://192.168.1.10:32400
+server_token   = your_plex_token
+```
 
 ### Install
 
