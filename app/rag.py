@@ -12,13 +12,12 @@ from app.adapters.retrievers import (
     LLMEnrichmentRetriever,
     LLMKnowledgeRetriever,
 )
+from app.config import QDRANT_COLLECTION as COLLECTION_NAME
+from app.config import QDRANT_PATH
 from app.domain.recommender import MovieRecommender
 from app.repositories.sql import SqlMediaItems
 from app.services.recommendation import ConversationalRecommendationService
 from app.services.vector_store import VectorStoreService
-
-QDRANT_PATH = "./media_items_qdrant_db"
-COLLECTION_NAME = "media_items"
 
 
 def main(spoiler_free: bool = False, verbose: bool = False) -> None:

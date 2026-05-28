@@ -55,6 +55,8 @@ Create a `.env` file in the project root (or export these in your shell):
 | `GOOGLE_API_KEY` | Yes | Google Gemini API key — used for embeddings and generation |
 | `PLEXAPI_AUTH_SERVER_BASEURL` | Yes | Base URL of your Plex server, e.g. `http://192.168.1.10:32400` |
 | `PLEXAPI_AUTH_SERVER_TOKEN` | Yes | Plex authentication token — find it in Plex Web under Settings → Account → XML |
+| `PLEX_MOVIE_LIBRARY` | No | Name of your Plex movie library as shown in the Plex UI under Libraries (default: `Movies`) |
+| `PLEX_SHOW_LIBRARY` | No | Name of your Plex TV show library as shown in the Plex UI under Libraries (default: `TV Shows`) |
 | `PYTHONPATH` | No | Set to the project root if running without `uv run` or the installed CLI |
 
 Alternatively, Plex credentials can be placed in `~/.config/plexapi/config.ini`:

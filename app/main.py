@@ -1,5 +1,5 @@
 from app.browser import browser_context
-from app.config import QDRANT_COLLECTION, QDRANT_PATH
+from app.config import PLEX_MOVIE_LIBRARY, QDRANT_COLLECTION, QDRANT_PATH
 from app.plex import Plex
 from app.repositories.sql import SqlMediaItems
 from app.synopsis import fetch_synopsis
@@ -10,7 +10,7 @@ def sync_library() -> None:
     sql_repo = SqlMediaItems()
     sql_repo.load()
 
-    plex_media_items = plex.get_media_items(media_types={Plex.MediaType.MOVIE})
+    plex_media_items = plex.get_media_items(libraries={PLEX_MOVIE_LIBRARY})
 
     new_items = []
     for plex_item in plex_media_items:
