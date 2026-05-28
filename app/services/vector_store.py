@@ -4,7 +4,7 @@ from langchain_core.documents import Document
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams
+from qdrant_client.models import Distance, FieldCondition, Filter, MatchAny, MatchValue, VectorParams
 
 VECTOR_SIZE = 3072
 BATCH_SIZE = 5
@@ -16,9 +16,9 @@ INTER_BATCH_DELAY = 4
 class VectorStoreService:
     def __init__(
         self,
-        embeddings: GoogleGenerativeAIEmbeddings,
         path: str,
         collection_name: str,
+        embeddings: GoogleGenerativeAIEmbeddings | None = None,
     ) -> None:
         self._embeddings = embeddings
         self._collection_name = collection_name
@@ -32,9 +32,42 @@ class VectorStoreService:
                 collection_name=self._collection_name,
                 embedding=self._embeddings,
             )
+            self._add_missing_synopsis_docs(documents)
         else:
             self._store = self._build(documents)
         return self._store
+
+    def _get_synopsis_imdb_ids(self) -> set[str]:
+        results, _ = self._client.scroll(
+            collection_name=self._collection_name,
+            scroll_filter=Filter(
+                must=[FieldCondition(key="metadata.embedding_type", match=MatchValue(value="synopsis"))]
+            ),
+            limit=10_000,
+            with_payload=True,
+            with_vectors=False,
+        )
+        return {pt.payload["metadata"]["imdb_id"] for pt in results if pt.payload}
+
+    def _add_missing_synopsis_docs(self, documents: list[Document]) -> None:
+        existing_ids = self._get_synopsis_imdb_ids()
+        missing = [doc for doc in documents if doc.metadata.get("imdb_id") not in existing_ids]
+        if not missing:
+            return
+        print(f"Adding {len(missing)} new synopsis embedding(s)...")
+        for i in range(0, len(missing), BATCH_SIZE):
+            batch = missing[i : i + BATCH_SIZE]
+            self._add_with_retry(self._store, batch)
+            if i + BATCH_SIZE < len(missing):
+                time.sleep(INTER_BATCH_DELAY)
+
+    def delete_by_imdb_ids(self, imdb_ids: set[str]) -> None:
+        if not imdb_ids:
+            return
+        self._client.delete(
+            collection_name=self._collection_name,
+            points_selector=Filter(must=[FieldCondition(key="metadata.imdb_id", match=MatchAny(any=list(imdb_ids)))]),
+        )
 
     def _build(self, documents: list[Document]) -> QdrantVectorStore:
         print(f"Building vector store from {len(documents)} items...")

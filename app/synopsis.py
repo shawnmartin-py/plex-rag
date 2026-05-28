@@ -1,4 +1,5 @@
 import random
+import re
 import time
 
 import requests
@@ -30,6 +31,18 @@ def _fetch_imdb_synopsis(page, imdb_id: str) -> str | None:
     return text or None
 
 
+def _titles_match(movie_title: str, wiki_title: str) -> bool:
+    """Return True if wiki_title plausibly refers to the same film as movie_title."""
+
+    def _normalize(s: str) -> str:
+        s = re.sub(r"\([^)]*\)", "", s)  # drop "(film)", "(2019 film)", etc.
+        return re.sub(r"[^a-z0-9 ]", "", s.lower()).strip()
+
+    movie_norm = _normalize(movie_title)
+    wiki_norm = _normalize(wiki_title)
+    return movie_norm in wiki_norm or wiki_norm in movie_norm
+
+
 def _fetch_wikipedia(title: str, year: int) -> str | None:
     try:
         search = requests.get(
@@ -49,7 +62,12 @@ def _fetch_wikipedia(title: str, year: int) -> str | None:
         if not results:
             return None
 
-        page_title = results[0]["title"]
+        page_title = next(
+            (r["title"] for r in results if _titles_match(title, r["title"])),
+            None,
+        )
+        if page_title is None:
+            return None
 
         extract = requests.get(
             WIKIPEDIA_API,

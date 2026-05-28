@@ -33,12 +33,11 @@ def enrich() -> None:
         HarmCategory,
     )
 
+    from app.config import QDRANT_COLLECTION as COLLECTION_NAME
+    from app.config import QDRANT_PATH
     from app.repositories.sql import SqlMediaItems
     from app.services.enrichment import EnrichmentService
     from app.services.vector_store import VectorStoreService
-
-    QDRANT_PATH = "./media_items_qdrant_db"
-    COLLECTION_NAME = "media_items"
 
     _safety_off = {
         HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
@@ -53,7 +52,7 @@ def enrich() -> None:
     sql_repo = SqlMediaItems()
     all_items = sql_repo.load()
 
-    vs_service = VectorStoreService(embeddings, path=QDRANT_PATH, collection_name=COLLECTION_NAME)
+    vs_service = VectorStoreService(path=QDRANT_PATH, collection_name=COLLECTION_NAME, embeddings=embeddings)
     documents = [item.to_document() for item in all_items if item.synopsis]
     vs_service.load_or_build(documents)
 
@@ -66,8 +65,8 @@ def clear_enrichments() -> None:
     from qdrant_client import QdrantClient
     from qdrant_client.models import FieldCondition, Filter, MatchValue
 
-    QDRANT_PATH = "./media_items_qdrant_db"
-    COLLECTION_NAME = "media_items"
+    from app.config import QDRANT_COLLECTION as COLLECTION_NAME
+    from app.config import QDRANT_PATH
 
     client = QdrantClient(path=QDRANT_PATH)
     client.delete(

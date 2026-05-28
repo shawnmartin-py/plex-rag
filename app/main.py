@@ -1,4 +1,5 @@
 from app.browser import browser_context
+from app.config import QDRANT_COLLECTION, QDRANT_PATH
 from app.plex import Plex
 from app.repositories.sql import SqlMediaItems
 from app.synopsis import fetch_synopsis
@@ -35,3 +36,21 @@ def sync_library() -> None:
     if removed_ids:
         print(f"Removing {len(removed_ids)} items no longer in Plex")
         sql_repo.delete(removed_ids)
+        _sync_removals_to_vector_store(removed_ids)
+
+
+def _sync_removals_to_vector_store(imdb_ids: set[str]) -> None:
+    from qdrant_client import QdrantClient
+    from qdrant_client.models import FieldCondition, Filter, MatchAny
+
+    client = QdrantClient(path=QDRANT_PATH)
+    try:
+        if not client.collection_exists(QDRANT_COLLECTION):
+            return
+        client.delete(
+            collection_name=QDRANT_COLLECTION,
+            points_selector=Filter(must=[FieldCondition(key="metadata.imdb_id", match=MatchAny(any=list(imdb_ids)))]),
+        )
+        print(f"Removed {len(imdb_ids)} item(s) from vector store")
+    finally:
+        client.close()

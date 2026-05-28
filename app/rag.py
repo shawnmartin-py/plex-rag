@@ -34,7 +34,7 @@ def main(spoiler_free: bool = False, verbose: bool = False) -> None:
     sql_repo = SqlMediaItems()
     all_items = sql_repo.load()
 
-    vs_service = VectorStoreService(embeddings, path=QDRANT_PATH, collection_name=COLLECTION_NAME)
+    vs_service = VectorStoreService(path=QDRANT_PATH, collection_name=COLLECTION_NAME, embeddings=embeddings)
     documents = [item.to_document() for item in all_items if item.synopsis]
     vector_store = vs_service.load_or_build(documents)
 
