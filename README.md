@@ -22,9 +22,9 @@ Generates and indexes deep expert film profiles for every movie in your library.
 
 Each profile is generated offline, so at query time the system searches pre-computed expertise rather than sending your entire library to the LLM. This scales to any catalogue size. The enrichment step is idempotent — re-running it skips sections that already exist and only fills gaps. If a film's synopsis triggers a content policy block, the enrichment retries without the synopsis so the profile is generated from the model's own knowledge instead.
 
-### Conversational recommendations (`chat` command)
+### Conversational recommendations
 
-Ask questions like "what should I watch tonight?" or "something like Parasite but lighter" and get back ranked, reasoned recommendations. Under the hood:
+Ask questions like "what should I watch tonight?" or "something like Parasite but lighter" and get back ranked, reasoned recommendations. Available as both a browser UI and a CLI. Under the hood:
 
 - **Query rewriting** — follow-up questions ("what about something shorter?") are rewritten into standalone queries using conversation history, so context carries through multi-turn conversation.
 - **Quad retrieval** — four strategies run in parallel and their results are grouped by film and deduplicated:
@@ -37,6 +37,17 @@ Ask questions like "what should I watch tonight?" or "something like Parasite bu
 - **Spoiler-free mode** (`--no-spoilers`) — same flow, but the generator reasons only from genre, tone, cast, and style — never plot details or story outcomes.
 
 The strict constraint throughout is that it only recommends movies from your library — the generator prompt explicitly forbids suggestions outside the retrieved candidate set.
+
+### Web UI
+
+A Streamlit browser interface for the recommendation chat. Runs locally and serves the app at `http://localhost:8501`.
+
+- **Chat interface** — multi-turn conversational recommendations with full history
+- **Movie cards** — each recommendation renders as a poster image alongside the reasoning, with IMDb rating below
+- **Spoiler-free toggle** — switch modes without leaving the browser
+- **New conversation** — reset chat history in one click
+
+The web UI is chat-only. Library sync and enrichment are still managed via the CLI commands below.
 
 ## Setup
 
@@ -76,6 +87,16 @@ playwright install chromium
 
 ## Usage
 
+### Web UI
+
+```bash
+uv run streamlit run streamlit_app/main.py
+```
+
+Opens at `http://localhost:8501`.
+
+### CLI
+
 ```bash
 # Sync your Plex library to the local DB and fetch missing synopses
 plex-rag sync
@@ -89,7 +110,7 @@ plex-rag enrich
 # Remove all enriched embeddings (preserves synopsis embeddings; re-run enrich to rebuild)
 plex-rag clear-enrichments
 
-# Start an interactive recommendation session
+# Start an interactive recommendation session in the terminal
 plex-rag chat
 
 # Start in spoiler-free mode
@@ -104,7 +125,7 @@ plex-rag chat --verbose
 ```bash
 plex-rag sync       # pull library + scrape synopses
 plex-rag enrich     # build expert profiles (takes a few minutes; rate-limited to ~4s between films)
-plex-rag chat       # start chatting
+uv run streamlit run streamlit_app/main.py   # open the web UI
 ```
 
 ## Architecture
@@ -132,6 +153,11 @@ app/
 │   └── json.py                 # JSON-backed alternative repository
 └── models/
     └── media_item.py           # MediaItem dataclass + Plex/Document conversion
+
+streamlit_app/
+├── main.py                     # Streamlit entrypoint — layout, session state, chat loop
+├── init.py                     # @st.cache_resource pipeline initialisation (LLM, vector store, SQL repo)
+└── components.py               # render_recommendations: parses LLM response into per-film poster + text cards
 ```
 
 ### Embedding types in the vector store

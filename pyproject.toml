@@ -15,6 +15,7 @@ dependencies = [
     "qdrant-client>=1.18.0",
     "requests>=2.34.2",
     "sqlalchemy>=2.0.50",
+    "streamlit>=1.45.0",
     "typer>=0.15.0",
 ]
 

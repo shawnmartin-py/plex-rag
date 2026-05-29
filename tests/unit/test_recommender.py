@@ -242,4 +242,5 @@ def test_recommend_returns_generator_output(single_doc):
     generator = MagicMock(spec=RecommendationGenerator)
     generator.generate.return_value = "the final answer"
     recommender = MovieRecommender([StubRetriever([single_doc])], generator, StubRewriter())
-    assert recommender.recommend("question", history=[]) == "the final answer"
+    answer, _ = recommender.recommend("question", history=[])
+    assert answer == "the final answer"

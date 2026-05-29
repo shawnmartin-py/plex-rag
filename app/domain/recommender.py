@@ -46,6 +46,11 @@ def _format_grouped(grouped: dict[str, list[Document]]) -> str:
     return "\n\n---\n\n".join(blocks)
 
 
+def _find_mentioned_ids(grouped: dict[str, list[Document]], response: str) -> list[str]:
+    response_lower = response.lower()
+    return [imdb_id for imdb_id, docs in grouped.items() if docs[0].metadata.get("title", "").lower() in response_lower]
+
+
 def _print_coverage(
     grouped: dict[str, list[Document]],
     sources: dict[str, set[str]],
@@ -104,13 +109,14 @@ class MovieRecommender:
         self._generator = generator
         self._rewriter = rewriter
 
-    def recommend(self, question: str, history: list[BaseMessage], verbose: bool = False) -> str:
+    def recommend(self, question: str, history: list[BaseMessage], verbose: bool = False) -> tuple[str, list[str]]:
         standalone = self._rewriter.rewrite(question, history) if history else question
         named_sets = [(r.name, r.retrieve(standalone)) for r in self._retrievers]
         grouped, sources = _group_docs(named_sets)
         context = _format_grouped(grouped)
         response = self._generator.generate(question, context, history)
+        mentioned_ids = _find_mentioned_ids(grouped, response)
         if verbose:
             retriever_names = [name for name, _ in named_sets]
             _print_coverage(grouped, sources, response, retriever_names)
-        return response
+        return response, mentioned_ids

@@ -34,6 +34,9 @@ class SqlMediaItems(BaseRepo):
             upsert = query.on_conflict_do_update(index_elements=["imdb_id"], set_={**query.excluded})
             session.execute(upsert)
 
+    def get_by_id(self, imdb_id: str) -> MediaItem | None:
+        return self._cached_items.get(imdb_id)
+
     def delete(self, imdb_ids: set[str]):
         with self.Session.begin() as session:
             session.query(TableMediaItem).filter(TableMediaItem.imdb_id.in_(imdb_ids)).delete(synchronize_session=False)
@@ -56,3 +59,4 @@ class TableMediaItem(Base, MediaItem):
     content_rating: Mapped[str]
     genres: Mapped[list[str]] = mapped_column(JSON)
     synopsis: Mapped[str | None]
+    thumb_url: Mapped[str | None]

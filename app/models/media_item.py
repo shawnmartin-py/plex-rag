@@ -14,6 +14,7 @@ class MediaItem:
     content_rating: str
     genres: list[str]
     synopsis: str | None = None
+    thumb_url: str | None = None
 
     @classmethod
     def from_plex(cls, plex_item) -> Self:
@@ -29,6 +30,7 @@ class MediaItem:
             content_rating=plex_item.contentRating,
             genres=[genre.tag for genre in plex_item.genres],
             synopsis=None,
+            thumb_url=plex_item.thumbUrl,
         )
 
     def to_metadata(self) -> dict:
