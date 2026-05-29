@@ -24,6 +24,7 @@ media_items_qdrant_db/
 
 # Claude
 .claude/
+CLAUDE.md
 
 # OS
 .DS_Store
