@@ -26,8 +26,21 @@ h1, h2, h3, h4, h5, h6,
 
 /* ── Sidebar ─────────────────────────────────────────────────────── */
 [data-testid="stSidebar"] > div:first-child {
-    background: #080808 !important;
-    border-right: 1px solid rgba(255, 255, 255, 0.06) !important;
+    background: linear-gradient(
+        to right,
+        #050505 0%,
+        #161616 52%,
+        #222222 76%,
+        #0d0d0d 100%
+    ) !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.28) !important;
+    border-top: none !important;
+    border-bottom: none !important;
+    border-radius: 0 !important;
+    box-shadow: inset -4px 0 12px rgba(255, 255, 255, 0.04),
+                2px 0 2px rgba(0, 0, 0, 1),
+                6px 0 24px rgba(0, 0, 0, 0.65) !important;
+    margin: 0 !important;
 }
 [data-testid="stSidebar"] h1 {
     font-size: 17px !important;
