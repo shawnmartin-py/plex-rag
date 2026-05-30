@@ -10,6 +10,7 @@ from app.adapters.retrievers import (
     DirectSynopsisRetriever,
     HyDEVectorRetriever,
     LLMEnrichmentRetriever,
+    LLMKnowledgeRetriever,
 )
 from app.config import QDRANT_COLLECTION as COLLECTION_NAME
 from app.config import QDRANT_PATH
@@ -36,11 +37,14 @@ def main(spoiler_free: bool = False, verbose: bool = False) -> None:
     documents = [item.to_document() for item in all_items if item.synopsis]
     vector_store = vs_service.load_or_build(documents)
 
+    doc_by_title = {doc.metadata["title"].lower(): doc for doc in documents}
+    movie_list_str = "\n".join(doc.metadata["title"] for doc in documents)
+
     recommender = MovieRecommender(
         retrievers=[
             DirectSynopsisRetriever(vector_store, embeddings),
             HyDEVectorRetriever(vector_store, embeddings, llm),
-            # LLMKnowledgeRetriever(llm, movie_list_str, doc_by_title),
+            LLMKnowledgeRetriever(llm, movie_list_str, doc_by_title),
             LLMEnrichmentRetriever(vector_store, embeddings),
         ],
         generator=GeminiRecommendationGenerator(llm, spoiler_free=spoiler_free),

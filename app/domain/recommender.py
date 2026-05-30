@@ -1,4 +1,5 @@
 import random
+import re
 
 from langchain_core.documents import Document
 from langchain_core.messages import BaseMessage
@@ -48,7 +49,17 @@ def _format_grouped(grouped: dict[str, list[Document]]) -> str:
 
 def _find_mentioned_ids(grouped: dict[str, list[Document]], response: str) -> list[str]:
     response_lower = response.lower()
-    return [imdb_id for imdb_id, docs in grouped.items() if docs[0].metadata.get("title", "").lower() in response_lower]
+
+    def first_position(docs: list[Document]) -> int:
+        title = re.sub(r"[#*_`]", "", docs[0].metadata.get("title", "")).lower()
+        m = re.search(r"\b" + re.escape(title) + r"\b", response_lower)
+        return m.start() if m else -1
+
+    ordered = sorted(
+        ((imdb_id, first_position(docs)) for imdb_id, docs in grouped.items()),
+        key=lambda x: x[1],
+    )
+    return [imdb_id for imdb_id, pos in ordered if pos >= 0]
 
 
 def _print_coverage(

@@ -162,7 +162,7 @@ for msg in st.session_state.messages:
     avatar = "🎬" if msg["role"] == "assistant" else "👤"
     with st.chat_message(msg["role"], avatar=avatar):
         if msg["role"] == "assistant":
-            render_recommendations(msg["content"], sql_repo)
+            render_recommendations(msg["content"], msg.get("items", []))
         else:
             st.markdown(msg["content"])
 
@@ -174,7 +174,7 @@ if prompt := st.chat_input("Ask for a movie recommendation..."):
 
     with st.chat_message("assistant", avatar="🎬"):
         with st.spinner("Finding recommendations..."):
-            answer, _ = service.chat_with_items(prompt, sql_repo)
-        render_recommendations(answer, sql_repo)
+            answer, items = service.chat_with_items(prompt, sql_repo)
+        render_recommendations(answer, items)
 
-    st.session_state.messages.append({"role": "assistant", "content": answer})
+    st.session_state.messages.append({"role": "assistant", "content": answer, "items": items})

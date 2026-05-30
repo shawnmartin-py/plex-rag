@@ -3,7 +3,6 @@ import re
 import streamlit as st
 
 from app.models.media_item import MediaItem
-from app.repositories.sql import SqlMediaItems
 
 # Patterns that signal a trailing summary/notes block within a numbered section
 _NOTES_RE = re.compile(
@@ -12,6 +11,8 @@ _NOTES_RE = re.compile(
     r"|\*\*(?:A Note|Note|Summary|Recommendation|Honorable|Additional|Other)))",
     re.IGNORECASE,
 )
+
+_NUMBERED_RE = re.compile(r"^(?:#{1,4} *|\*{1,2})?(?:\d+)\b[.)]")
 
 
 def _split_trailing_notes(text: str) -> tuple[str, str | None]:
@@ -22,59 +23,39 @@ def _split_trailing_notes(text: str) -> tuple[str, str | None]:
     return text, None
 
 
-def _parse_sections(response: str, sql_repo: SqlMediaItems) -> list[tuple[MediaItem | None, str]]:
-    """Split LLM response into (item, text) pairs by numbered section.
-
-    Matches each section to a MediaItem by looking for a known title in the
-    first two lines only (where the movie title always appears), so that
-    cross-references in later prose don't steal the match.
-    """
-    # Match numbered items whether bare ("1."), bold ("**1.**"), or a markdown header ("### 1.")
+def _parse_sections(response: str) -> list[tuple[bool, str]]:
+    """Split LLM response into (is_numbered_section, text) pairs."""
     parts = re.split(r"(?=\n(?:#{1,4} *|\*{1,2})?(?:\d+)\b[.)])", "\n" + response.strip())
-    items = list(sql_repo._cached_items.values())
-    used: set[str] = set()
-
-    results: list[tuple[MediaItem | None, str]] = []
+    results: list[tuple[bool, str]] = []
     for part in parts:
         part = part.strip()
         if not part:
             continue
-        matched: MediaItem | None = None
-        # Strip markdown markers so "### 1. Julieta" and "Juror #2" both normalise cleanly
-        raw_header = "\n".join(part.split("\n")[:2])
-        header = re.sub(r"[#*_`]", "", raw_header).lower()
-        for item in items:
-            normalised_title = re.sub(r"[#*_`]", "", item.title).lower()
-            if item.imdb_id not in used and normalised_title in header:
-                matched = item
-                used.add(item.imdb_id)
-                break
-
-        if matched is not None:
-            # Split out any trailing notes/summary that got bundled into this section
-            movie_text, notes = _split_trailing_notes(part)
-            results.append((matched, movie_text))
-            if notes:
-                results.append((None, notes))
-        else:
-            results.append((None, part))
-
+        is_numbered = bool(_NUMBERED_RE.match(part))
+        movie_text, notes = _split_trailing_notes(part)
+        results.append((is_numbered, movie_text))
+        if notes:
+            results.append((False, notes))
     return results
 
 
-def render_recommendations(response: str, sql_repo: SqlMediaItems) -> None:
-    """Render each numbered recommendation as poster + text, in sequence."""
-    sections = _parse_sections(response, sql_repo)
+def render_recommendations(response: str, items: list[MediaItem]) -> None:
+    """Render each numbered recommendation as poster + text.
 
-    any_matched = any(item is not None for item, _ in sections)
-    if not any_matched:
+    Items are paired to numbered sections positionally — no title text-matching.
+    """
+    sections = _parse_sections(response)
+
+    any_numbered = any(is_numbered for is_numbered, _ in sections)
+    if not any_numbered or not items:
         st.markdown(response)
         return
 
-    for item, text in sections:
-        if item is None:
-            st.markdown(text)
-        else:
+    item_idx = 0
+    for is_numbered, text in sections:
+        if is_numbered and item_idx < len(items):
+            item = items[item_idx]
+            item_idx += 1
             col_img, col_text = st.columns([1, 3])
             with col_img:
                 if item.thumb_url:
@@ -89,3 +70,5 @@ def render_recommendations(response: str, sql_repo: SqlMediaItems) -> None:
             with col_text:
                 st.markdown(text)
             st.divider()
+        else:
+            st.markdown(text)
