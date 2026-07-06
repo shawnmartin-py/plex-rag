@@ -1,8 +1,11 @@
+from typing import Any
+
 import pytest
+from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_qdrant import QdrantVectorStore
 
@@ -17,10 +20,18 @@ class StubLLM(BaseChatModel):
     def _llm_type(self) -> str:
         return "stub"
 
-    def _generate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: CallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
         response = self.responses[self._index % len(self.responses)]
         object.__setattr__(self, "_index", self._index + 1)
-        return ChatResult(generations=[ChatGeneration(message=AIMessage(content=response))])
+        return ChatResult(
+            generations=[ChatGeneration(message=AIMessage(content=response))]
+        )
 
 
 class StubEmbeddings(Embeddings):
@@ -40,28 +51,46 @@ TEST_DOCS = [
         page_content=(
             "Title: Parasite\nYear: 2019\nIMDb Rating: 8.5\n"
             "Genres: Drama, Thriller\n"
-            "Synopsis: A poor Korean family schemes their way into the lives of a wealthy family, "
+            "Synopsis: A poor Korean family schemes their way into the lives of a "
+            "wealthy family, "
             "leading to an explosive confrontation about class and greed."
         ),
-        metadata={"imdb_id": "tt6751668", "title": "Parasite", "year": 2019, "embedding_type": "synopsis"},
+        metadata={
+            "imdb_id": "tt6751668",
+            "title": "Parasite",
+            "year": 2019,
+            "embedding_type": "synopsis",
+        },
     ),
     Document(
         page_content=(
             "Title: Oldboy\nYear: 2003\nIMDb Rating: 8.1\n"
             "Genres: Action, Drama, Mystery\n"
-            "Synopsis: A man is imprisoned for 15 years without explanation, then released and given "
+            "Synopsis: A man is imprisoned for 15 years without explanation, then "
+            "released and given "
             "five days to find out why."
         ),
-        metadata={"imdb_id": "tt0364569", "title": "Oldboy", "year": 2003, "embedding_type": "synopsis"},
+        metadata={
+            "imdb_id": "tt0364569",
+            "title": "Oldboy",
+            "year": 2003,
+            "embedding_type": "synopsis",
+        },
     ),
     Document(
         page_content=(
             "Title: The Handmaiden\nYear: 2016\nIMDb Rating: 8.1\n"
             "Genres: Drama, Mystery, Romance\n"
-            "Synopsis: A woman is hired as a handmaiden to a Japanese heiress, but is secretly "
+            "Synopsis: A woman is hired as a handmaiden to a Japanese heiress, but is "
+            "secretly "
             "involved in a plot to defraud her."
         ),
-        metadata={"imdb_id": "tt4016934", "title": "The Handmaiden", "year": 2016, "embedding_type": "synopsis"},
+        metadata={
+            "imdb_id": "tt4016934",
+            "title": "The Handmaiden",
+            "year": 2016,
+            "embedding_type": "synopsis",
+        },
     ),
 ]
 
@@ -72,7 +101,7 @@ def stub_embeddings() -> StubEmbeddings:
 
 
 @pytest.fixture(scope="module")
-def qdrant_store(stub_embeddings) -> QdrantVectorStore:
+def qdrant_store(stub_embeddings: StubEmbeddings) -> QdrantVectorStore:
     return QdrantVectorStore.from_documents(
         TEST_DOCS,
         embedding=stub_embeddings,

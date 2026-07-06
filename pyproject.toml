@@ -22,18 +22,22 @@ include = ["app*"]
 
 [dependency-groups]
 dev = [
+    "mypy>=1.19.0",
     "pytest>=9.0.3",
     "pytest-mock>=3.15.1",
 ]
 
 [tool.ruff]
-line-length = 120
+line-length = 88
 
 [tool.ruff.lint]
-select = ["E", "F", "S", "W", "I"]
+select = ["E", "F", "W", "I", "S", "B", "UP"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101"]
 
 [tool.mypy]
+strict = true
+ignore_missing_imports = true
 explicit_package_bases = true
+exclude = [".venv", "venv"]

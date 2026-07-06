@@ -17,7 +17,10 @@ from app.domain.ports import CandidateRetriever
 from app.domain.recommender import MovieRecommender
 from app.repositories.qdrant_media_items import QdrantMediaItems
 from app.services.recommendation import ConversationalRecommendationService
-from app.services.recommender_vector_store import connect_vector_store, load_synopsis_documents
+from app.services.recommender_vector_store import (
+    connect_vector_store,
+    load_synopsis_documents,
+)
 
 _SAFETY_OFF = {
     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
@@ -38,7 +41,9 @@ def build_recommender_service(
     which scans the full title list per turn — worth it for the CLI's
     non-latency-sensitive usage, skipped by default for Streamlit."""
     embeddings = GoogleGenerativeAIEmbeddings(model="gemini-embedding-001")
-    llm = ChatGoogleGenerativeAI(model="gemini-3.1-flash-lite", temperature=0, safety_settings=_SAFETY_OFF)
+    llm = ChatGoogleGenerativeAI(
+        model="gemini-3.1-flash-lite", temperature=0, safety_settings=_SAFETY_OFF
+    )
 
     vector_store = connect_vector_store(QDRANT_URL, QDRANT_COLLECTION, embeddings)
     documents = load_synopsis_documents(vector_store, QDRANT_COLLECTION)

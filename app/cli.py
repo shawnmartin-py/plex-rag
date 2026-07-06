@@ -10,9 +10,16 @@ app = typer.Typer(
 @app.command()
 def chat(
     no_spoilers: bool = typer.Option(
-        False, "--no-spoilers", help="Omit plot details and story spoilers from recommendations."
+        False,
+        "--no-spoilers",
+        help="Omit plot details and story spoilers from recommendations.",
     ),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show which retrievers flagged each candidate movie."),
+    verbose: bool = typer.Option(
+        False,
+        "--verbose",
+        "-v",
+        help="Show which retrievers flagged each candidate movie.",
+    ),
 ) -> None:
     """Start an interactive AI movie recommendation session."""
     from app.rag import main

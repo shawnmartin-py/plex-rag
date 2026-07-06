@@ -21,7 +21,9 @@ class QueryRewriter(ABC):
 
 class RecommendationGenerator(ABC):
     @abstractmethod
-    def generate(self, question: str, context: str, history: list[BaseMessage]) -> str: ...
+    def generate(
+        self, question: str, context: str, history: list[BaseMessage]
+    ) -> str: ...
 
 
 class MediaItemLookup(Protocol):
