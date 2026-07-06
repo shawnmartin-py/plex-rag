@@ -9,7 +9,7 @@ from app.services.recommendation import ConversationalRecommendationService
 @pytest.fixture
 def recommender():
     mock = MagicMock()
-    mock.recommend.return_value = "here are some films"
+    mock.recommend.return_value = ("here are some films", [])
     return mock
 
 
@@ -21,9 +21,9 @@ def service(recommender):
 def test_first_chat_passes_empty_history(recommender):
     # History is a mutable list passed by reference, so we capture a snapshot at call time
     snapshots = []
-    recommender.recommend.side_effect = lambda q, h: (
+    recommender.recommend.side_effect = lambda q, h, **_: (
         snapshots.append(list(h)),
-        "here are some films",
+        ("here are some films", []),
     )[1]
     service = ConversationalRecommendationService(recommender)
     service.chat("recommend a thriller")
@@ -37,9 +37,9 @@ def test_first_chat_returns_answer(service):
 
 def test_second_chat_includes_first_exchange_in_history(recommender):
     snapshots = []
-    recommender.recommend.side_effect = lambda q, h: (
+    recommender.recommend.side_effect = lambda q, h, **_: (
         snapshots.append(list(h)),
-        "here are some films",
+        ("here are some films", []),
     )[1]
     service = ConversationalRecommendationService(recommender)
     service.chat("recommend a thriller")
@@ -55,9 +55,9 @@ def test_second_chat_includes_first_exchange_in_history(recommender):
 
 def test_history_grows_with_each_turn(recommender):
     snapshots = []
-    recommender.recommend.side_effect = lambda q, h: (
+    recommender.recommend.side_effect = lambda q, h, **_: (
         snapshots.append(list(h)),
-        "here are some films",
+        ("here are some films", []),
     )[1]
     service = ConversationalRecommendationService(recommender)
     service.chat("first question")
@@ -76,7 +76,7 @@ def test_each_chat_passes_correct_question(service, recommender):
 
 
 def test_history_contains_ai_response_from_recommender(service, recommender):
-    recommender.recommend.return_value = "my custom answer"
+    recommender.recommend.return_value = ("my custom answer", [])
     service.chat("question one")
     service.chat("question two")
 

@@ -1,6 +1,3 @@
-import tempfile
-from collections.abc import Iterator
-
 import pytest
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
@@ -8,8 +5,6 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_qdrant import QdrantVectorStore
-
-from app.services.vector_store import VectorStoreService
 
 
 class StubLLM(BaseChatModel):
@@ -77,17 +72,10 @@ def stub_embeddings() -> StubEmbeddings:
 
 
 @pytest.fixture(scope="module")
-def vs_service(stub_embeddings) -> Iterator[VectorStoreService]:
-    with tempfile.TemporaryDirectory() as tmpdir:
-        service = VectorStoreService(
-            embeddings=stub_embeddings,
-            path=tmpdir,
-            collection_name="test_movies",
-        )
-        service.load_or_build(TEST_DOCS)
-        yield service
-
-
-@pytest.fixture(scope="module")
-def qdrant_store(vs_service) -> QdrantVectorStore:
-    return vs_service.store
+def qdrant_store(stub_embeddings) -> QdrantVectorStore:
+    return QdrantVectorStore.from_documents(
+        TEST_DOCS,
+        embedding=stub_embeddings,
+        location=":memory:",
+        collection_name="test_movies",
+    )

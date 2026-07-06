@@ -150,7 +150,7 @@ with st.sidebar:
 
 # --- Initialize service (cached per spoiler_free setting) ---
 with st.spinner("Loading movie library..."):
-    service, sql_repo = build_service(spoiler_free=spoiler_free)
+    service, media_repo = build_service(spoiler_free=spoiler_free)
 st.session_state.service = service
 
 # --- Session state ---
@@ -174,7 +174,7 @@ if prompt := st.chat_input("Ask for a movie recommendation..."):
 
     with st.chat_message("assistant", avatar="🎬"):
         with st.spinner("Finding recommendations..."):
-            answer, items = service.chat_with_items(prompt, sql_repo)
+            answer, items = service.chat_with_items(prompt, media_repo)
         render_recommendations(answer, items)
 
     st.session_state.messages.append({"role": "assistant", "content": answer, "items": items})

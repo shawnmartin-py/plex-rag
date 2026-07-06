@@ -17,7 +17,7 @@ def _group_docs(
     seen: set[tuple] = set()
     for retriever_name, docs in named_sets:
         for doc in docs:
-            imdb_id = doc.metadata.get("imdb_id")
+            imdb_id = str(doc.metadata.get("imdb_id"))
             key = (
                 imdb_id,
                 doc.metadata.get("embedding_type"),

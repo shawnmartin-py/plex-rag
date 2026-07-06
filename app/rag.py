@@ -1,56 +1,8 @@
-from langchain_google_genai import (
-    ChatGoogleGenerativeAI,
-    GoogleGenerativeAIEmbeddings,
-    HarmBlockThreshold,
-    HarmCategory,
-)
-
-from app.adapters.generators import GeminiQueryRewriter, GeminiRecommendationGenerator
-from app.adapters.retrievers import (
-    DirectSynopsisRetriever,
-    HyDEVectorRetriever,
-    LLMEnrichmentRetriever,
-    LLMKnowledgeRetriever,
-)
-from app.config import QDRANT_COLLECTION as COLLECTION_NAME
-from app.config import QDRANT_PATH
-from app.domain.recommender import MovieRecommender
-from app.repositories.sql import SqlMediaItems
-from app.services.recommendation import ConversationalRecommendationService
-from app.services.vector_store import VectorStoreService
+from app.bootstrap import build_recommender_service
 
 
 def main(spoiler_free: bool = False, verbose: bool = False) -> None:
-    embeddings = GoogleGenerativeAIEmbeddings(model="gemini-embedding-001")
-    _safety_off = {
-        HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-        HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-    }
-    llm = ChatGoogleGenerativeAI(model="gemini-3.1-flash-lite", temperature=0, safety_settings=_safety_off)
-
-    sql_repo = SqlMediaItems()
-    all_items = sql_repo.load()
-
-    vs_service = VectorStoreService(path=QDRANT_PATH, collection_name=COLLECTION_NAME, embeddings=embeddings)
-    documents = [item.to_document() for item in all_items if item.synopsis]
-    vector_store = vs_service.load_or_build(documents)
-
-    doc_by_title = {doc.metadata["title"].lower(): doc for doc in documents}
-    movie_list_str = "\n".join(doc.metadata["title"] for doc in documents)
-
-    recommender = MovieRecommender(
-        retrievers=[
-            DirectSynopsisRetriever(vector_store, embeddings),
-            HyDEVectorRetriever(vector_store, embeddings, llm),
-            LLMKnowledgeRetriever(llm, movie_list_str, doc_by_title),
-            LLMEnrichmentRetriever(vector_store, embeddings),
-        ],
-        generator=GeminiRecommendationGenerator(llm, spoiler_free=spoiler_free),
-        rewriter=GeminiQueryRewriter(llm),
-    )
-    service = ConversationalRecommendationService(recommender)
+    service, _ = build_recommender_service(spoiler_free=spoiler_free, include_knowledge_retriever=True)
 
     mode = " (spoiler-free mode)" if spoiler_free else ""
     print(f"\nMovie recommendation bot ready{mode}. Type your request, or 'quit' to exit.\n")

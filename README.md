@@ -4,24 +4,6 @@ A conversational movie recommendation chatbot that only recommends movies you ac
 
 ## What it does
 
-### Library sync (`sync` command)
-
-Connects to your Plex server, pulls all unwatched movies, and saves them to a local SQLite database. For any new movie without a synopsis, it scrapes one — trying IMDB's full plot summary first, falling back to Wikipedia's Plot section, then IMDB's short description. It uses a headless Chromium browser (Playwright) with anti-bot measures to do this scraping. It also prunes movies that have been removed from Plex.
-
-### Vector store build
-
-Each movie (title, year, IMDb rating, genres, synopsis) gets embedded using Google's Gemini embedding model (`gemini-embedding-001`, 3072 dimensions) and stored in a local Qdrant vector database. This enables semantic search — "find me something dark and psychological" can match movies by meaning, not just keywords. These synopsis embeddings remain the foundation of the store; enrichment embeddings are layered on top.
-
-### Library enrichment (`enrich` command)
-
-Generates and indexes deep expert film profiles for every movie in your library. For each film, three focused LLM profiles are written and stored as separate embeddings alongside the synopsis:
-
-- **Craft** — subgenre positioning, cinematic movement, director style and filmography, visual grammar (camera movement, aspect ratio, lighting), editing rhythm, score and cinematographer.
-- **Meaning** — narrative structure, core themes and recurring motifs, tone and emotional register, acting style, and how the film ends emotionally without spoiling plot.
-- **Context** — cultural and historical moment, critical reception and retrospective reassessment, audience fit, six or more comparable films with specific axes of similarity, and a dense retrieval-optimised tag paragraph.
-
-Each profile is generated offline, so at query time the system searches pre-computed expertise rather than sending your entire library to the LLM. This scales to any catalogue size. The enrichment step is idempotent — re-running it skips sections that already exist and only fills gaps. If a film's synopsis triggers a content policy block, the enrichment retries without the synopsis so the profile is generated from the model's own knowledge instead.
-
 ### Conversational recommendations
 
 Ask questions like "what should I watch tonight?" or "something like Parasite but lighter" and get back ranked, reasoned recommendations. Available as both a browser UI and a CLI. Under the hood:
@@ -47,15 +29,23 @@ A Streamlit browser interface for the recommendation chat. Runs locally and serv
 - **Spoiler-free toggle** — switch modes without leaving the browser
 - **New conversation** — reset chat history in one click
 
-The web UI is chat-only. Library sync and enrichment are still managed via the CLI commands below.
+## Data source
+
+This repo is recommender-only. Your Plex library is synced, scraped, LLM-enriched,
+and embedded into Qdrant by a separate sibling project, `plex-ingest`
+(Dagster-based) — that repo owns the Plex connection, all scraping, enrichment
+generation, and every write to the vector store. `plex-rag` connects to the
+Qdrant collection `plex-ingest` populates, read-only, over the network. See
+[docs/vector-store-contract.md](docs/vector-store-contract.md) for the data
+contract between the two repos.
 
 ## Setup
 
 ### Prerequisites
 
 - Python 3.14+
-- A running Plex Media Server
 - A Google Gemini API key
+- A running Qdrant instance populated by `plex-ingest` (or pointed at during local dev)
 
 ### Environment variables
 
@@ -64,25 +54,14 @@ Create a `.env` file in the project root (or export these in your shell):
 | Variable | Required | Description |
 |---|---|---|
 | `GOOGLE_API_KEY` | Yes | Google Gemini API key — used for embeddings and generation |
-| `PLEXAPI_AUTH_SERVER_BASEURL` | Yes | Base URL of your Plex server, e.g. `http://192.168.1.10:32400` |
-| `PLEXAPI_AUTH_SERVER_TOKEN` | Yes | Plex authentication token — find it in Plex Web under Settings → Account → XML |
-| `PLEX_MOVIE_LIBRARY` | No | Name of your Plex movie library as shown in the Plex UI under Libraries (default: `Movies`) |
-| `PLEX_SHOW_LIBRARY` | No | Name of your Plex TV show library as shown in the Plex UI under Libraries (default: `TV Shows`) |
+| `QDRANT_URL` | No | URL of the Qdrant server `plex-ingest` populates (default: `http://localhost:6333`) |
+| `QDRANT_COLLECTION` | No | Qdrant collection name (default: `media_items`) |
 | `PYTHONPATH` | No | Set to the project root if running without `uv run` or the installed CLI |
-
-Alternatively, Plex credentials can be placed in `~/.config/plexapi/config.ini`:
-
-```ini
-[auth]
-server_baseurl = http://192.168.1.10:32400
-server_token   = your_plex_token
-```
 
 ### Install
 
 ```bash
 uv sync
-playwright install chromium
 ```
 
 ## Usage
@@ -98,18 +77,6 @@ Opens at `http://localhost:8501`.
 ### CLI
 
 ```bash
-# Sync your Plex library to the local DB and fetch missing synopses
-plex-rag sync
-
-# Fetch synopses for any existing items still missing one
-plex-rag scrape
-
-# Generate and index expert film profiles (run once after sync, then incrementally)
-plex-rag enrich
-
-# Remove all enriched embeddings (preserves synopsis embeddings; re-run enrich to rebuild)
-plex-rag clear-enrichments
-
 # Start an interactive recommendation session in the terminal
 plex-rag chat
 
@@ -120,53 +87,34 @@ plex-rag chat --no-spoilers
 plex-rag chat --verbose
 ```
 
-### Recommended first-run order
-
-```bash
-plex-rag sync       # pull library + scrape synopses
-plex-rag enrich     # build expert profiles (takes a few minutes; rate-limited to ~4s between films)
-uv run streamlit run streamlit_app/main.py   # open the web UI
-```
-
 ## Architecture
 
 ```
 app/
 ├── cli.py                      # Typer CLI entrypoint
-├── main.py                     # sync_library: Plex → SQLite + synopsis scraping
-├── rag.py                      # chat entrypoint: wires up the full RAG pipeline
-├── plex.py                     # PlexAPI wrapper
-├── synopsis.py                 # IMDB / Wikipedia synopsis scraper
-├── scrape_imdb.py              # Standalone scrape job for missing synopses
+├── rag.py                      # CLI chat entrypoint: input loop over build_recommender_service
+├── bootstrap.py                # build_recommender_service: shared composition root (CLI + Streamlit)
+├── config.py                   # env-driven settings
 ├── domain/
 │   ├── recommender.py          # MovieRecommender: orchestrates retrieve → generate
-│   └── ports.py                # Interfaces: CandidateRetriever, RecommendationGenerator, QueryRewriter
+│   └── ports.py                # Interfaces: CandidateRetriever, RecommendationGenerator, QueryRewriter, MediaItemLookup
 ├── adapters/
 │   ├── retrievers.py           # DirectSynopsisRetriever, HyDEVectorRetriever, LLMKnowledgeRetriever, LLMEnrichmentRetriever
 │   └── generators.py           # GeminiRecommendationGenerator, GeminiQueryRewriter
 ├── services/
-│   ├── enrichment.py           # EnrichmentService: generates and indexes per-film expert profiles
 │   ├── recommendation.py       # ConversationalRecommendationService (manages chat history)
-│   └── vector_store.py         # Qdrant vector store builder with retry/batching
+│   └── recommender_vector_store.py  # read-only Qdrant connect + preflight checks
 ├── repositories/
-│   ├── sql.py                  # SQLAlchemy-backed media item persistence
-│   └── json.py                 # JSON-backed alternative repository
+│   └── qdrant_media_items.py   # QdrantMediaItems: MediaItem lookup sourced from Qdrant payloads
 └── models/
-    └── media_item.py           # MediaItem dataclass + Plex/Document conversion
+    └── media_item.py           # MediaItem dataclass (read-side shape)
 
 streamlit_app/
 ├── main.py                     # Streamlit entrypoint — layout, session state, chat loop
-├── init.py                     # @st.cache_resource pipeline initialisation (LLM, vector store, SQL repo)
+├── init.py                     # @st.cache_resource wrapper around app.bootstrap.build_recommender_service
 └── components.py               # render_recommendations: parses LLM response into per-film poster + text cards
 ```
 
-### Embedding types in the vector store
-
-The Qdrant collection stores two types of documents, distinguished by a `metadata.embedding_type` field:
-
-| Type       | Content                                                    | Added by                      |
-|------------|------------------------------------------------------------|-------------------------------|
-| `synopsis` | Title, year, rating, genres, synopsis text                 | `sync` / `rag.py` on startup  |
-| `enriched` | LLM-generated expert profile (one document per section)    | `enrich` command              |
-
-Enriched documents also carry a `metadata.section` field (`craft`, `meaning`, or `context`) that the enrichment retriever and idempotency checks use to filter precisely.
+See [docs/recommender.md](docs/recommender.md) for a deeper walkthrough of the
+recommendation pipeline, and [docs/vector-store-contract.md](docs/vector-store-contract.md)
+for the Qdrant payload shape this repo reads.
