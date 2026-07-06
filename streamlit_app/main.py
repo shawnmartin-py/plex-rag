@@ -177,4 +177,6 @@ if prompt := st.chat_input("Ask for a movie recommendation..."):
             answer, items = service.chat_with_items(prompt, media_repo)
         render_recommendations(answer, items)
 
-    st.session_state.messages.append({"role": "assistant", "content": answer, "items": items})
+    st.session_state.messages.append(
+        {"role": "assistant", "content": answer, "items": items}
+    )

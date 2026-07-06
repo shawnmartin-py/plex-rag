@@ -6,9 +6,10 @@ from app.models.media_item import MediaItem
 
 # Patterns that signal a trailing summary/notes block within a numbered section
 _NOTES_RE = re.compile(
-    r"\n+(?=(?:Recommendation Summary|A Note on|Note:|In Summary|Final Note|Summary:|To summarize"
-    r"|Honorable Mention|Additional|Other Option|Other Candidate|In Closing|Overall"
-    r"|\*\*(?:A Note|Note|Summary|Recommendation|Honorable|Additional|Other)))",
+    r"\n+(?=(?:Recommendation Summary|A Note on|Note:|In Summary|Final Note|Summary:"
+    r"|To summarize|Honorable Mention|Additional|Other Option|Other Candidate"
+    r"|In Closing|Overall|\*\*(?:A Note|Note|Summary|Recommendation|Honorable"
+    r"|Additional|Other)))",
     re.IGNORECASE,
 )
 
@@ -25,7 +26,9 @@ def _split_trailing_notes(text: str) -> tuple[str, str | None]:
 
 def _parse_sections(response: str) -> list[tuple[bool, str]]:
     """Split LLM response into (is_numbered_section, text) pairs."""
-    parts = re.split(r"(?=\n(?:#{1,4} *|\*{1,2})?(?:\d+)\b[.)])", "\n" + response.strip())
+    parts = re.split(
+        r"(?=\n(?:#{1,4} *|\*{1,2})?(?:\d+)\b[.)])", "\n" + response.strip()
+    )
     results: list[tuple[bool, str]] = []
     for part in parts:
         part = part.strip()
@@ -64,7 +67,8 @@ def render_recommendations(response: str, items: list[MediaItem]) -> None:
                     st.markdown("🎬")
                 if item.imdb_rating:
                     st.markdown(
-                        f"<p style='color:#8E8E93;font-size:13px;margin-top:6px;'>⭐ {item.imdb_rating} IMDb</p>",
+                        "<p style='color:#8E8E93;font-size:13px;margin-top:6px;'>"
+                        f"⭐ {item.imdb_rating} IMDb</p>",
                         unsafe_allow_html=True,
                     )
             with col_text:

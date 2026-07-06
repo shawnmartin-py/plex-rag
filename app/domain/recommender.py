@@ -14,7 +14,7 @@ def _group_docs(
 ) -> tuple[dict[str, list[Document]], dict[str, set[str]]]:
     grouped: dict[str, list[Document]] = {}
     sources: dict[str, set[str]] = {}
-    seen: set[tuple] = set()
+    seen: set[tuple[str, str | None, str | None]] = set()
     for retriever_name, docs in named_sets:
         for doc in docs:
             imdb_id = str(doc.metadata.get("imdb_id"))
@@ -31,7 +31,7 @@ def _group_docs(
 
 
 def _format_grouped(grouped: dict[str, list[Document]]) -> str:
-    def sort_key(doc: Document) -> tuple:
+    def sort_key(doc: Document) -> tuple[int, int]:
         is_enriched = 1 if doc.metadata.get("embedding_type") == "enriched" else 0
         return (is_enriched, _SECTION_ORDER.get(doc.metadata.get("section", ""), 99))
 
@@ -120,7 +120,9 @@ class MovieRecommender:
         self._generator = generator
         self._rewriter = rewriter
 
-    def recommend(self, question: str, history: list[BaseMessage], verbose: bool = False) -> tuple[str, list[str]]:
+    def recommend(
+        self, question: str, history: list[BaseMessage], verbose: bool = False
+    ) -> tuple[str, list[str]]:
         standalone = self._rewriter.rewrite(question, history) if history else question
         named_sets = [(r.name, r.retrieve(standalone)) for r in self._retrievers]
         grouped, sources = _group_docs(named_sets)

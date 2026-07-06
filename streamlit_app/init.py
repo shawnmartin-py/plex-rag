@@ -6,5 +6,7 @@ from app.services.recommendation import ConversationalRecommendationService
 
 
 @st.cache_resource
-def build_service(spoiler_free: bool = False) -> tuple[ConversationalRecommendationService, QdrantMediaItems]:
+def build_service(
+    spoiler_free: bool = False,
+) -> tuple[ConversationalRecommendationService, QdrantMediaItems]:
     return build_recommender_service(spoiler_free=spoiler_free)
