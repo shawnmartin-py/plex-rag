@@ -9,8 +9,7 @@ Both entry points read **exclusively from the Qdrant collection**
 [docs/vector-store-contract.md](vector-store-contract.md) — there is no
 SQLite/`SqlMediaItems` dependency and no write path here anymore (that was a
 temporary bridge during the `plex-ingest` extraction; it's gone as of the
-phase-2 cutover — see
-[docs/epics/plex-ingest-extraction/](epics/plex-ingest-extraction/README.md)).
+cutover to the networked Qdrant collection).
 On startup, `connect_vector_store` (`app/services/recommender_vector_store.py`)
 does a preflight check — reachable, collection exists, vector size matches
 `gemini-embedding-001` — and fails fast with a clear message if not; it never

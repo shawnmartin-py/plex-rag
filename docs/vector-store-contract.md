@@ -3,11 +3,10 @@
 This is the data-level contract between `plex-rag` (the recommender) and
 `plex-ingest` (the data pipeline, Dagster-based, in a separate repo). It is
 the one thing that must stay in sync **manually** across the two repos —
-there is no shared code package enforcing it, by deliberate choice (see the
-epic decision log at
-[epics/plex-ingest-extraction/README.md](epics/plex-ingest-extraction/README.md)).
-Copy this file into `plex-ingest` as well once that repo exists, and keep
-both copies in sync.
+there is no shared code package enforcing it, by deliberate choice (a
+shared package would re-couple two repos with very different stacks for
+very little payoff). This is the `plex-rag` copy; keep it in sync with the
+`plex-ingest` copy (`docs/vector-store-contract.md` there) by hand.
 
 Nothing in this doc is aspirational — it describes exactly what
 `plex-ingest` writes and what `plex-rag` reads. If you change one side,

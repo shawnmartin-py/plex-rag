@@ -2,6 +2,29 @@
 
 A conversational movie recommendation chatbot that only recommends movies you actually have in your personal Plex library.
 
+## Purpose
+
+Owning a large Plex library doesn't solve "what should I watch tonight" — the
+library isn't discoverable by mood, theme, or taste, and generic recommendation
+engines suggest things you don't own. `plex-rag` is a chat assistant that reasons
+about your library the way a knowledgeable friend or critic would: it
+understands vibe- and taste-based requests ("something like Parasite but
+lighter"), not just keyword search, and it is hard-constrained to only ever
+suggest films you can actually press play on.
+
+It's one half of a two-repo project: this repo is the **query-time / serving**
+half (the chat app, in two front ends), while the sibling repo `plex-ingest`
+keeps the underlying library data up to date — see [Data source](#data-source)
+below for how the two connect.
+
+The core design bet is that a single retrieval strategy isn't enough to serve
+every kind of question. A plot-driven question ("something with a heist gone
+wrong") needs synopsis search; a vibe-driven question ("moody, slow-burn,
+Kubrick-esque") needs matching on critic-style vocabulary that no synopsis
+contains. So instead of picking one retrieval method, this app runs four in
+parallel every turn and merges their results — see the retriever breakdown
+below.
+
 ## What it does
 
 ### Conversational recommendations
@@ -23,6 +46,8 @@ The strict constraint throughout is that it only recommends movies from your lib
 ### Web UI
 
 A Streamlit browser interface for the recommendation chat. Runs locally and serves the app at `http://localhost:8501`.
+
+![Web UI — conversational recommendations with movie cards](docs/images/web-ui-recommendations.png)
 
 - **Chat interface** — multi-turn conversational recommendations with full history
 - **Movie cards** — each recommendation renders as a poster image alongside the reasoning, with IMDb rating below
