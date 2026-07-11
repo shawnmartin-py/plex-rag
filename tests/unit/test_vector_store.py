@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from qdrant_client.models import Distance, VectorParams
 
-from app.services.recommender_vector_store import (
+from app.repositories.vector_store import (
     QdrantUnavailableError,
     connect_vector_store,
     load_synopsis_documents,
@@ -25,7 +25,7 @@ def make_mock_client(*, exists: bool = True, vector_size: int = 3072) -> MagicMo
 
 def test_connect_raises_when_server_unreachable() -> None:
     with patch(
-        "app.services.recommender_vector_store.QdrantClient",
+        "app.repositories.vector_store.QdrantClient",
         side_effect=ConnectionError("refused"),
     ):
         with pytest.raises(QdrantUnavailableError, match="Could not reach Qdrant"):
@@ -34,27 +34,21 @@ def test_connect_raises_when_server_unreachable() -> None:
 
 def test_connect_raises_when_collection_missing() -> None:
     mock_client = make_mock_client(exists=False)
-    with patch(
-        "app.services.recommender_vector_store.QdrantClient", return_value=mock_client
-    ):
+    with patch("app.repositories.vector_store.QdrantClient", return_value=mock_client):
         with pytest.raises(QdrantUnavailableError, match="does not exist"):
             connect_vector_store("http://localhost:6333", "media_items", MagicMock())
 
 
 def test_connect_raises_when_vector_size_mismatched() -> None:
     mock_client = make_mock_client(vector_size=1536)
-    with patch(
-        "app.services.recommender_vector_store.QdrantClient", return_value=mock_client
-    ):
+    with patch("app.repositories.vector_store.QdrantClient", return_value=mock_client):
         with pytest.raises(QdrantUnavailableError, match="vector size 1536"):
             connect_vector_store("http://localhost:6333", "media_items", MagicMock())
 
 
 def test_connect_returns_vector_store_when_healthy() -> None:
     mock_client = make_mock_client()
-    with patch(
-        "app.services.recommender_vector_store.QdrantClient", return_value=mock_client
-    ):
+    with patch("app.repositories.vector_store.QdrantClient", return_value=mock_client):
         store = connect_vector_store(
             "http://localhost:6333", "media_items", StubEmbeddings()
         )

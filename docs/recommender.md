@@ -10,7 +10,7 @@ Both entry points read **exclusively from the Qdrant collection**
 SQLite/`SqlMediaItems` dependency and no write path here anymore (that was a
 temporary bridge during the `plex-ingest` extraction; it's gone as of the
 cutover to the networked Qdrant collection).
-On startup, `connect_vector_store` (`app/services/recommender_vector_store.py`)
+On startup, `connect_vector_store` (`app/repositories/vector_store.py`)
 does a preflight check — reachable, collection exists, vector size matches
 `gemini-embedding-001` — and fails fast with a clear message if not; it never
 tries to create or repair the collection itself.
@@ -28,7 +28,7 @@ tries to create or repair the collection itself.
 Both entry points call `build_recommender_service` (`app/bootstrap.py`) — the
 single composition root that constructs the Gemini clients, connects to
 Qdrant via `connect_vector_store` + `load_synopsis_documents`
-(`app/services/recommender_vector_store.py`), wires up the retriever stack,
+(`app/repositories/vector_store.py`), wires up the retriever stack,
 and returns a `ConversationalRecommendationService` plus a `QdrantMediaItems`
 lookup. Movie titles and per-film `MediaItem`s (for `chat_with_items`'s
 poster/rating display) are both derived from the same
@@ -40,7 +40,7 @@ CLI passes `include_knowledge_retriever=True` to also wire in
 terminal usage isn't latency-sensitive in the same way; the web UI leaves it
 off (the default) for a snappier browser experience.
 
-## Architecture (`app/domain/`, `app/adapters/`, `app/services/`)
+## Architecture (`app/domain/`, `app/adapters/`, `app/services/`, `app/repositories/`)
 
 This follows a small ports-and-adapters split:
 
@@ -52,6 +52,11 @@ This follows a small ports-and-adapters split:
   Gemini/Qdrant implementations of those ports.
 - `app/services/recommendation.py` — `ConversationalRecommendationService`,
   which owns chat history across turns.
+- `app/repositories/` — read-only Qdrant data access: `qdrant_media_items.py`
+  (`QdrantMediaItems`, implements `MediaItemLookup`) and `vector_store.py`
+  (`connect_vector_store` + `load_synopsis_documents`, the Qdrant
+  connection/schema-validation/document-loading helpers used by the
+  composition root).
 
 ### `MovieRecommender.recommend` (`app/domain/recommender.py`)
 

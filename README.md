@@ -128,10 +128,10 @@ app/
 │   ├── retrievers.py           # DirectSynopsisRetriever, HyDEVectorRetriever, LLMKnowledgeRetriever, LLMEnrichmentRetriever
 │   └── generators.py           # GeminiRecommendationGenerator, GeminiQueryRewriter
 ├── services/
-│   ├── recommendation.py       # ConversationalRecommendationService (manages chat history)
-│   └── recommender_vector_store.py  # read-only Qdrant connect + preflight checks
+│   └── recommendation.py       # ConversationalRecommendationService (manages chat history)
 ├── repositories/
-│   └── qdrant_media_items.py   # QdrantMediaItems: MediaItem lookup sourced from Qdrant payloads
+│   ├── qdrant_media_items.py   # QdrantMediaItems: MediaItem lookup sourced from Qdrant payloads
+│   └── vector_store.py         # read-only Qdrant connect + preflight checks
 ├── formatting/
 │   └── sections.py             # parse_sections/split_trailing_notes: LLM response → per-film sections (framework-agnostic)
 └── models/

@@ -16,11 +16,8 @@ from app.config import QDRANT_COLLECTION, QDRANT_URL
 from app.domain.ports import CandidateRetriever
 from app.domain.recommender import MovieRecommender
 from app.repositories.qdrant_media_items import QdrantMediaItems
+from app.repositories.vector_store import connect_vector_store, load_synopsis_documents
 from app.services.recommendation import ConversationalRecommendationService
-from app.services.recommender_vector_store import (
-    connect_vector_store,
-    load_synopsis_documents,
-)
 
 _SAFETY_OFF = {
     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
