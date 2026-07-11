@@ -5,7 +5,11 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableSequence
 
-from app.adapters.generators import GeminiQueryRewriter, GeminiRecommendationGenerator
+from app.adapters.generators import (
+    GeminiConversationTitler,
+    GeminiQueryRewriter,
+    GeminiRecommendationGenerator,
+)
 
 
 def _system_template(generator: GeminiRecommendationGenerator) -> str:
@@ -38,6 +42,15 @@ def spoiler_free_generator() -> tuple[GeminiRecommendationGenerator, MagicMock]:
     mock_chain = MagicMock()
     instance._chain = mock_chain
     mock_chain.invoke.return_value = "here are my recommendations"
+    return instance, mock_chain
+
+
+@pytest.fixture
+def titler() -> tuple[GeminiConversationTitler, MagicMock]:
+    instance = GeminiConversationTitler(MagicMock())
+    mock_chain = MagicMock()
+    instance._chain = mock_chain
+    mock_chain.invoke.return_value = "  Heist thrillers with a twist  "
     return instance, mock_chain
 
 
@@ -168,3 +181,24 @@ def test_spoiler_free_generator_passes_context(
     instance.generate("question", "Title: Parasite", history=[])
     call_args = mock_chain.invoke.call_args[0][0]
     assert call_args["context"] == "Title: Parasite"
+
+
+# --- GeminiConversationTitler ---
+
+
+def test_titler_returns_stripped_title(
+    titler: tuple[GeminiConversationTitler, MagicMock],
+) -> None:
+    instance, _ = titler
+    result = instance.title("recommend a heist movie", "Here's Heat (1995)...")
+    assert result == "Heist thrillers with a twist"
+
+
+def test_titler_passes_question_and_answer_to_chain(
+    titler: tuple[GeminiConversationTitler, MagicMock],
+) -> None:
+    instance, mock_chain = titler
+    instance.title("recommend a heist movie", "Here's Heat (1995)...")
+    call_args = mock_chain.invoke.call_args[0][0]
+    assert call_args["question"] == "recommend a heist movie"
+    assert call_args["answer"] == "Here's Heat (1995)..."

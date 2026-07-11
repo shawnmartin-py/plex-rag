@@ -19,6 +19,14 @@ class QueryRewriter(ABC):
     def rewrite(self, question: str, history: list[BaseMessage]) -> str: ...
 
 
+class ConversationTitler(ABC):
+    """Produces a short topic title for a conversation's first exchange — used to
+    label its entry in the web UI's Recent-conversations sidebar list."""
+
+    @abstractmethod
+    def title(self, first_question: str, first_answer: str) -> str: ...
+
+
 class RecommendationGenerator(ABC):
     @abstractmethod
     def generate(

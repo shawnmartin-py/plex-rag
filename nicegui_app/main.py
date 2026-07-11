@@ -1,16 +1,26 @@
+import logging
+import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from nicegui import Client, app, run, ui
 from nicegui.events import ValueChangeEventArguments
 
-from app.config import NICEGUI_STORAGE_SECRET
+from app.config import CONVERSATIONS_DB_PATH, NICEGUI_STORAGE_SECRET
+from app.domain.ports import ConversationTitler
+from app.models.conversation import Conversation, ConversationMessage, MessageRole
 from app.models.media_item import MediaItem, StreamingSource, VideoResolution
+from app.repositories.conversation_store import ConversationStore
 from app.repositories.qdrant_media_items import QdrantMediaItems
 from app.services.recommendation import ConversationalRecommendationService
 from nicegui_app.components import render_chat_row, render_recommendations
 from nicegui_app.service_cache import get_service
 from nicegui_app.styles import SIDEBAR_WIDTH_PX, apply_theme
+
+_MAX_ANSWER_CHARS_FOR_TITLE = 1500
+
+logger = logging.getLogger(__name__)
 
 # Streaming-platform logo badges (see app/formatting/media_badge.py) — served from
 # /static rather than embedded as data URIs so the browser can cache them.
@@ -26,14 +36,7 @@ _SIDEBAR_GLYPH = (
     "</svg>"
 )
 
-# Static placeholder until conversation persistence lands — gives the sidebar
-# its intended shape (per the approved design mock) ahead of the feature.
-_PLACEHOLDER_RECENTS = [
-    "Unsettling psychological horror",
-    "Rainy-Sunday comfort films",
-    "Heist thrillers with a twist",
-    "Movie night with the kids",
-]
+_store = ConversationStore(CONVERSATIONS_DB_PATH)
 
 
 def _item_to_dict(item: MediaItem) -> dict[str, Any]:
@@ -81,11 +84,18 @@ async def index(client: Client) -> None:
     # ConversationalRecommendationService instance.
     messages: list[dict[str, Any]] = app.storage.tab.setdefault("messages", [])
     state: dict[str, Any] = {
-        "spoiler_free": app.storage.tab.setdefault("spoiler_free", False)
+        "spoiler_free": app.storage.tab.setdefault("spoiler_free", False),
+        "conversation_id": app.storage.tab.setdefault(
+            "conversation_id", str(uuid.uuid4())
+        ),
+        # Non-None while displaying a read-only snapshot loaded from Recent —
+        # persisted to app.storage.tab (not just a local var) so this stays
+        # correct across a tab reload, since "conversation_id" also persists.
+        "viewing_recent_id": app.storage.tab.setdefault("viewing_recent_id", None),
     }
 
     async def current_service() -> tuple[
-        ConversationalRecommendationService, QdrantMediaItems
+        ConversationalRecommendationService, QdrantMediaItems, ConversationTitler
     ]:
         return await get_service(state["spoiler_free"])
 
@@ -110,10 +120,7 @@ async def index(client: Client) -> None:
             .classes("plex-new-conv-btn w-full")
         )
         ui.label("Recent").classes("plex-sec-label")
-        for i, conv_title in enumerate(_PLACEHOLDER_RECENTS):
-            conv = ui.label(conv_title).classes("plex-conv w-full")
-            if i == 0:
-                conv.classes("plex-conv-active")
+        recent_container = ui.column().classes("w-full gap-0")
         with ui.row().classes("plex-sb-bottom w-full"):
             spoiler_switch = ui.switch("Spoiler-free mode", value=state["spoiler_free"])
 
@@ -152,6 +159,16 @@ async def index(client: Client) -> None:
             else:
                 render_chat_row(transcript, "user", msg["content"])
 
+    def render_recent_list() -> None:
+        recent_container.clear()
+        with recent_container:
+            for conv in _store.list_recent():
+                label = conv.title or "New conversation"
+                row = ui.label(label).classes("plex-conv w-full")
+                if conv.id == state["viewing_recent_id"]:
+                    row.classes("plex-conv-active")
+                row.on("click", lambda _, cid=conv.id: on_load_recent(cid))
+
     async def on_spoiler_toggle(e: ValueChangeEventArguments[bool | None]) -> None:
         state["spoiler_free"] = bool(e.value)
         app.storage.tab["spoiler_free"] = state["spoiler_free"]
@@ -161,12 +178,76 @@ async def index(client: Client) -> None:
         # st.session_state.messages. Only "New conversation" clears it.
         await current_service()  # warm the cache for the new setting
 
+    def _start_new_conversation() -> None:
+        state["conversation_id"] = str(uuid.uuid4())
+        app.storage.tab["conversation_id"] = state["conversation_id"]
+        state["viewing_recent_id"] = None
+        app.storage.tab["viewing_recent_id"] = None
+
     async def on_new_conversation() -> None:
-        service, _ = await current_service()
+        service, _, _ = await current_service()
         service.reset_history()
         messages.clear()
         app.storage.tab["messages"] = messages
+        _start_new_conversation()
         render_stored_messages()
+        render_recent_list()
+
+    async def on_load_recent(conversation_id: str) -> None:
+        conv = _store.get(conversation_id)
+        if conv is None:  # stale row — e.g. pruned between render and click
+            render_recent_list()
+            return
+        messages.clear()
+        messages.extend(
+            {"role": m.role.value, "content": m.content, "items": m.items}
+            for m in conv.messages
+        )
+        app.storage.tab["messages"] = messages
+        state["conversation_id"] = conversation_id
+        app.storage.tab["conversation_id"] = conversation_id
+        state["viewing_recent_id"] = conversation_id
+        app.storage.tab["viewing_recent_id"] = conversation_id
+        render_stored_messages()
+        render_recent_list()
+
+    async def _persist_current_conversation(
+        latest_question: str, latest_answer: str, titler: ConversationTitler
+    ) -> None:
+        # This turn's own user+assistant pair, nothing before it — i.e. the
+        # first exchange of a brand-new conversation, the one time a title
+        # needs generating.
+        is_first_exchange = len(messages) == 2
+        now = datetime.now(UTC).isoformat()
+        existing = None if is_first_exchange else _store.get(state["conversation_id"])
+        title = existing.title if existing else None
+        if is_first_exchange:
+            try:
+                title = await run.io_bound(
+                    titler.title,
+                    latest_question,
+                    latest_answer[:_MAX_ANSWER_CHARS_FOR_TITLE],
+                )
+            except Exception:  # noqa: BLE001 — a titling hiccup must not lose the turn
+                title = latest_question[:40]
+        conversation = Conversation(
+            id=state["conversation_id"],
+            title=title,
+            created_at=existing.created_at if existing else now,
+            updated_at=now,
+            messages=[
+                ConversationMessage(
+                    role=MessageRole(m["role"]),
+                    content=m["content"],
+                    items=m.get("items", []),
+                )
+                for m in messages
+            ],
+        )
+        try:
+            await run.io_bound(_store.save, conversation)
+        except Exception:  # noqa: BLE001 — a persistence hiccup must not break the chat turn
+            logger.exception("Failed to persist conversation %s", conversation.id)
 
     busy = {"value": False}
 
@@ -180,6 +261,21 @@ async def index(client: Client) -> None:
         chat_input.set_value("")
         chat_input.disable()
 
+        service, media_repo, titler = await current_service()
+
+        # Sending while a past Recent conversation is loaded starts a
+        # brand-new conversation rather than appending onto that snapshot's
+        # transcript — resuming isn't supported (no LLM/RAG context was
+        # restored for it), so continuing to type into a stale snapshot
+        # would produce a transcript that looks continuous but whose earlier
+        # turns the model never actually saw this session.
+        if state["viewing_recent_id"] is not None:
+            service.reset_history()
+            messages.clear()
+            _start_new_conversation()
+            render_stored_messages()
+            render_recent_list()
+
         messages.append({"role": "user", "content": prompt})
         render_chat_row(transcript, "user", prompt)
 
@@ -187,7 +283,6 @@ async def index(client: Client) -> None:
         with assistant_body:
             spinner = ui.spinner()
 
-        service, media_repo = await current_service()
         result = await run.io_bound(service.chat_with_items, prompt, media_repo)
         items: list[MediaItem]
         if result is None:
@@ -206,6 +301,9 @@ async def index(client: Client) -> None:
         )
         app.storage.tab["messages"] = messages
 
+        await _persist_current_conversation(prompt, answer, titler)
+        render_recent_list()
+
         chat_input.enable()
         busy["value"] = False
 
@@ -220,6 +318,7 @@ async def index(client: Client) -> None:
     await current_service()  # warm the initial cache (spinner while it builds)
     loading.delete()
     render_stored_messages()
+    render_recent_list()
     chat_input.enable()
 
 

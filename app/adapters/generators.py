@@ -3,7 +3,7 @@ from langchain_core.messages import BaseMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-from app.domain.ports import QueryRewriter, RecommendationGenerator
+from app.domain.ports import ConversationTitler, QueryRewriter, RecommendationGenerator
 
 
 class GeminiQueryRewriter(QueryRewriter):
@@ -27,6 +27,32 @@ class GeminiQueryRewriter(QueryRewriter):
 
     def rewrite(self, question: str, history: list[BaseMessage]) -> str:
         return self._chain.invoke({"input": question, "chat_history": history})
+
+
+class GeminiConversationTitler(ConversationTitler):
+    _prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                (
+                    "Summarize the topic of this movie-recommendation exchange as a "
+                    "short, punchy title, in the style of a browser tab title or a "
+                    "chat sidebar entry — e.g. 'Heist thrillers with a twist' or "
+                    "'Rainy-Sunday comfort films'. 3-6 words. No quotes, no trailing "
+                    "punctuation. Return only the title, nothing else."
+                ),
+            ),
+            ("human", "User asked: {question}\n\nAssistant replied: {answer}"),
+        ]
+    )
+
+    def __init__(self, llm: BaseChatModel) -> None:
+        self._chain = self._prompt | llm | StrOutputParser()
+
+    def title(self, first_question: str, first_answer: str) -> str:
+        return self._chain.invoke(
+            {"question": first_question, "answer": first_answer}
+        ).strip()
 
 
 _RECOMMENDATION_GUIDELINES = (

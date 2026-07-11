@@ -6,10 +6,13 @@ import pytest
 from nicegui import run
 
 import nicegui_app.service_cache as service_cache
+from app.domain.ports import ConversationTitler
 from app.repositories.qdrant_media_items import QdrantMediaItems
 from app.services.recommendation import ConversationalRecommendationService
 
-_BuiltService = tuple[ConversationalRecommendationService, QdrantMediaItems]
+_BuiltService = tuple[
+    ConversationalRecommendationService, QdrantMediaItems, ConversationTitler
+]
 
 
 @pytest.fixture(autouse=True)
@@ -23,7 +26,8 @@ def _isolated_cache(monkeypatch: pytest.MonkeyPatch) -> None:
 def make_built_service() -> _BuiltService:
     service = MagicMock(spec=ConversationalRecommendationService)
     media_repo = MagicMock(spec=QdrantMediaItems)
-    return (service, media_repo)
+    titler = MagicMock(spec=ConversationTitler)
+    return (service, media_repo, titler)
 
 
 @pytest.mark.anyio

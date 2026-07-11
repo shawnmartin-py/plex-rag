@@ -56,7 +56,7 @@ def service(
 def test_first_question_returns_string_answer(
     service: ConversationalRecommendationService,
 ) -> None:
-    answer = service.chat("recommend a dark thriller")
+    answer, _ = service.chat("recommend a dark thriller")
     assert isinstance(answer, str)
     assert len(answer) > 0
 
@@ -64,7 +64,7 @@ def test_first_question_returns_string_answer(
 def test_first_question_returns_generator_response(
     service: ConversationalRecommendationService,
 ) -> None:
-    answer = service.chat("recommend a dark thriller")
+    answer, _ = service.chat("recommend a dark thriller")
     assert answer == RECOMMENDATION_RESPONSE
 
 

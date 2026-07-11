@@ -155,7 +155,7 @@ h1, h2, h3, h4, h5, h6 {
     font-size: 16px !important;
 }
 
-/* ── Recent conversations (static placeholder for now) ───────────── */
+/* ── Recent conversations ─────────────────────────────────────────── */
 .plex-sec-label {
     font-size: 11px !important;
     font-weight: 600 !important;

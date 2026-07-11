@@ -1,5 +1,6 @@
 import random
 import re
+from dataclasses import dataclass
 
 from langchain_core.documents import Document
 from langchain_core.messages import BaseMessage
@@ -7,6 +8,25 @@ from langchain_core.messages import BaseMessage
 from app.domain.ports import CandidateRetriever, QueryRewriter, RecommendationGenerator
 
 _SECTION_ORDER = {"": 0, "craft": 1, "meaning": 2, "context": 3}
+
+
+@dataclass(frozen=True)
+class CoverageEntry:
+    title: str
+    year: str
+    sources: frozenset[str]
+
+
+@dataclass(frozen=True)
+class CoverageReport:
+    """Which retriever(s) surfaced each film, and whether it made it into the
+    final response — pure data. Rendering it (CLI table, log line, etc.) is a
+    presentation concern that belongs to whichever entry point asked for it,
+    not to the domain layer."""
+
+    retriever_names: list[str]
+    recommended: list[CoverageEntry]
+    dropped: list[CoverageEntry]
 
 
 def _group_docs(
@@ -62,51 +82,30 @@ def _find_mentioned_ids(grouped: dict[str, list[Document]], response: str) -> li
     return [imdb_id for imdb_id, pos in ordered if pos >= 0]
 
 
-def _print_coverage(
+def _build_coverage_report(
     grouped: dict[str, list[Document]],
     sources: dict[str, set[str]],
     response: str,
     retriever_names: list[str],
-) -> None:
+) -> CoverageReport:
     response_lower = response.lower()
-    col = 44
-
-    recommended: list[tuple[str, str, set[str]]] = []
-    dropped: list[tuple[str, str, set[str]]] = []
+    recommended: list[CoverageEntry] = []
+    dropped: list[CoverageEntry] = []
 
     for imdb_id, docs in grouped.items():
-        title = docs[0].metadata.get("title", imdb_id)
+        title = str(docs[0].metadata.get("title", imdb_id))
         year = str(docs[0].metadata.get("year", ""))
-        flags = sources.get(imdb_id, set())
+        entry = CoverageEntry(
+            title=title, year=year, sources=frozenset(sources.get(imdb_id, set()))
+        )
         if title.lower() in response_lower:
-            recommended.append((title, year, flags))
+            recommended.append(entry)
         else:
-            dropped.append((title, year, flags))
+            dropped.append(entry)
 
-    print("\n[Source coverage]")
-
-    if recommended:
-        print(f"  {'RECOMMENDED':<{col}}  source(s)")
-        print(f"  {'─' * col}  {'─' * 22}")
-        for title, year, flags in recommended:
-            label = f"{title} ({year})"
-            print(f"  {label:<{col}}  {', '.join(sorted(flags))}")
-
-    if dropped:
-        print(f"\n  {'DROPPED (in context, not recommended)':<{col}}  source(s)")
-        print(f"  {'─' * col}  {'─' * 22}")
-        for title, year, flags in dropped:
-            label = f"{title} ({year})"
-            print(f"  {label:<{col}}  {', '.join(sorted(flags))}")
-
-    counts = {name: 0 for name in retriever_names}
-    for _, _, flags in recommended:
-        for name in flags:
-            if name in counts:
-                counts[name] += 1
-    total = len(recommended)
-    summary = "  · ".join(f"{name} {counts[name]}/{total}" for name in retriever_names)
-    print(f"\n  Coverage: {summary}\n")
+    return CoverageReport(
+        retriever_names=retriever_names, recommended=recommended, dropped=dropped
+    )
 
 
 class MovieRecommender:
@@ -122,14 +121,17 @@ class MovieRecommender:
 
     def recommend(
         self, question: str, history: list[BaseMessage], verbose: bool = False
-    ) -> tuple[str, list[str]]:
+    ) -> tuple[str, list[str], CoverageReport | None]:
         standalone = self._rewriter.rewrite(question, history) if history else question
         named_sets = [(r.name, r.retrieve(standalone)) for r in self._retrievers]
         grouped, sources = _group_docs(named_sets)
         context = _format_grouped(grouped)
         response = self._generator.generate(question, context, history)
         mentioned_ids = _find_mentioned_ids(grouped, response)
+        coverage = None
         if verbose:
             retriever_names = [name for name, _ in named_sets]
-            _print_coverage(grouped, sources, response, retriever_names)
-        return response, mentioned_ids
+            coverage = _build_coverage_report(
+                grouped, sources, response, retriever_names
+            )
+        return response, mentioned_ids, coverage

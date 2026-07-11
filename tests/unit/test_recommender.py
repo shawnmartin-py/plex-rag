@@ -262,5 +262,29 @@ def test_recommend_returns_generator_output(single_doc: Document) -> None:
     recommender = MovieRecommender(
         [StubRetriever([single_doc])], generator, StubRewriter()
     )
-    answer, _ = recommender.recommend("question", history=[])
+    answer, _, _ = recommender.recommend("question", history=[])
     assert answer == "the final answer"
+
+
+def test_recommend_omits_coverage_report_by_default(single_doc: Document) -> None:
+    generator = MagicMock(spec=RecommendationGenerator)
+    generator.generate.return_value = "the final answer"
+    recommender = MovieRecommender(
+        [StubRetriever([single_doc])], generator, StubRewriter()
+    )
+    _, _, coverage = recommender.recommend("question", history=[])
+    assert coverage is None
+
+
+def test_recommend_verbose_builds_coverage_report(single_doc: Document) -> None:
+    generator = MagicMock(spec=RecommendationGenerator)
+    generator.generate.return_value = "Parasite is a great pick."
+    recommender = MovieRecommender(
+        [StubRetriever([single_doc])], generator, StubRewriter()
+    )
+    _, _, coverage = recommender.recommend("question", history=[], verbose=True)
+    assert coverage is not None
+    assert coverage.retriever_names == ["stub"]
+    assert [e.title for e in coverage.recommended] == ["Parasite"]
+    assert coverage.dropped == []
+    assert coverage.recommended[0].sources == frozenset({"stub"})

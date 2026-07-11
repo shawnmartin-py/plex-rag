@@ -5,7 +5,11 @@ from langchain_google_genai import (
     HarmCategory,
 )
 
-from app.adapters.generators import GeminiQueryRewriter, GeminiRecommendationGenerator
+from app.adapters.generators import (
+    GeminiConversationTitler,
+    GeminiQueryRewriter,
+    GeminiRecommendationGenerator,
+)
 from app.adapters.retrievers import (
     DirectSynopsisRetriever,
     HyDEVectorRetriever,
@@ -13,7 +17,7 @@ from app.adapters.retrievers import (
     LLMKnowledgeRetriever,
 )
 from app.config import QDRANT_COLLECTION, QDRANT_URL
-from app.domain.ports import CandidateRetriever
+from app.domain.ports import CandidateRetriever, ConversationTitler
 from app.domain.recommender import MovieRecommender
 from app.repositories.qdrant_media_items import QdrantMediaItems
 from app.repositories.vector_store import connect_vector_store, load_synopsis_documents
@@ -30,14 +34,15 @@ _SAFETY_OFF = {
 def build_recommender_service(
     spoiler_free: bool = False,
     include_knowledge_retriever: bool = False,
-) -> tuple[ConversationalRecommendationService, QdrantMediaItems]:
+) -> tuple[ConversationalRecommendationService, QdrantMediaItems, ConversationTitler]:
     """Composition root shared by the CLI (`app/rag.py`) and NiceGUI
     (`nicegui_app/service_cache.py`) entry points — connects to Qdrant, wires
-    up the retriever stack, and returns the chat service plus a MediaItem
-    lookup for rendering. `include_knowledge_retriever` adds
-    `LLMKnowledgeRetriever`, which scans the full title list per turn — worth
-    it for the CLI's non-latency-sensitive usage, skipped by default for the
-    web UI."""
+    up the retriever stack, and returns the chat service, a MediaItem lookup
+    for rendering, and a titler for the web UI's Recent-conversations sidebar
+    (reusing the same `llm` instance rather than building a second Gemini
+    client). `include_knowledge_retriever` adds `LLMKnowledgeRetriever`, which
+    scans the full title list per turn — worth it for the CLI's
+    non-latency-sensitive usage, skipped by default for the web UI."""
     embeddings = GoogleGenerativeAIEmbeddings(model="gemini-embedding-001")
     llm = ChatGoogleGenerativeAI(
         model="gemini-3.1-flash-lite", temperature=0, safety_settings=_SAFETY_OFF
@@ -62,4 +67,8 @@ def build_recommender_service(
         generator=GeminiRecommendationGenerator(llm, spoiler_free=spoiler_free),
         rewriter=GeminiQueryRewriter(llm),
     )
-    return ConversationalRecommendationService(recommender), media_repo
+    return (
+        ConversationalRecommendationService(recommender),
+        media_repo,
+        GeminiConversationTitler(llm),
+    )

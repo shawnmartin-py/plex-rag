@@ -4,21 +4,22 @@ from unittest.mock import MagicMock
 import pytest
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
+from app.domain.recommender import CoverageReport
 from app.services.recommendation import ConversationalRecommendationService
 
 
 def _capture_history_side_effect(
     snapshots: list[list[BaseMessage]],
-) -> Callable[..., tuple[str, list[str]]]:
+) -> Callable[..., tuple[str, list[str], CoverageReport | None]]:
     """Records a snapshot of the history seen on each call, then returns a
     canned answer — lets tests assert what history the recommender was
     actually invoked with on each turn."""
 
     def side_effect(
         question: str, history: list[BaseMessage], **_: object
-    ) -> tuple[str, list[str]]:
+    ) -> tuple[str, list[str], CoverageReport | None]:
         snapshots.append(list(history))
-        return "here are some films", []
+        return "here are some films", [], None
 
     return side_effect
 
@@ -26,7 +27,7 @@ def _capture_history_side_effect(
 @pytest.fixture
 def recommender() -> MagicMock:
     mock = MagicMock()
-    mock.recommend.return_value = ("here are some films", [])
+    mock.recommend.return_value = ("here are some films", [], None)
     return mock
 
 
@@ -46,8 +47,9 @@ def test_first_chat_passes_empty_history(recommender: MagicMock) -> None:
 def test_first_chat_returns_answer(
     service: ConversationalRecommendationService,
 ) -> None:
-    result = service.chat("recommend a thriller")
-    assert result == "here are some films"
+    answer, coverage = service.chat("recommend a thriller")
+    assert answer == "here are some films"
+    assert coverage is None
 
 
 def test_second_chat_includes_first_exchange_in_history(
@@ -91,7 +93,7 @@ def test_each_chat_passes_correct_question(
 def test_history_contains_ai_response_from_recommender(
     service: ConversationalRecommendationService, recommender: MagicMock
 ) -> None:
-    recommender.recommend.return_value = ("my custom answer", [])
+    recommender.recommend.return_value = ("my custom answer", [], None)
     service.chat("question one")
     service.chat("question two")
 

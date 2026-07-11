@@ -6,8 +6,11 @@ import pytest
 from nicegui import ui
 from nicegui.testing import user_simulation
 
+import app.config as config
 import nicegui_app.service_cache as service_cache
+from app.domain.ports import ConversationTitler
 from app.models.media_item import MediaItem
+from app.repositories.conversation_store import ConversationStore
 from app.repositories.qdrant_media_items import QdrantMediaItems
 from app.services.recommendation import ConversationalRecommendationService
 
@@ -36,6 +39,12 @@ def make_service(answer: str = "1. **Heat** (1995)\nA tense heist.") -> MagicMoc
     return service
 
 
+def make_titler(title: str = "Heist thrillers with a twist") -> MagicMock:
+    titler = MagicMock(spec=ConversationTitler)
+    titler.title.return_value = title
+    return titler
+
+
 @pytest.fixture(autouse=True)
 def _isolated_cache(monkeypatch: pytest.MonkeyPatch) -> None:
     """`service_cache._cache`/`_lock` are process-lifetime globals shared by
@@ -45,10 +54,27 @@ def _isolated_cache(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(service_cache, "_lock", asyncio.Lock())
 
 
+@pytest.fixture(autouse=True)
+def _isolated_conversation_store(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Path:
+    """`nicegui_app/main.py` is re-executed via `runpy` on every
+    `user_simulation(main_file=...)` call, so its module-level `_store`
+    can't be reached/monkeypatched directly from here (each run gets a fresh
+    module namespace, not the cached `nicegui_app.main`). Patching
+    `app.config.CONVERSATIONS_DB_PATH` before that runpy execution works
+    instead, since `main.py`'s `from app.config import CONVERSATIONS_DB_PATH`
+    reads the (already-patched) attribute at that point — giving every test
+    its own on-disk DuckDB file rather than the real `data/` one."""
+    db_path = tmp_path / "conversations.duckdb"
+    monkeypatch.setattr(config, "CONVERSATIONS_DB_PATH", str(db_path))
+    return db_path
+
+
 @pytest.mark.anyio
 async def test_page_loads_and_enables_chat_input() -> None:
     media_repo = MagicMock(spec=QdrantMediaItems)
-    built = (make_service(), media_repo)
+    built = (make_service(), media_repo, make_titler())
     with patch.object(
         service_cache, "build_recommender_service", return_value=built
     ) as mock_build:
@@ -66,7 +92,9 @@ async def test_send_message_renders_user_and_assistant_turns() -> None:
     service = make_service()
     media_repo = MagicMock(spec=QdrantMediaItems)
     with patch.object(
-        service_cache, "build_recommender_service", return_value=(service, media_repo)
+        service_cache,
+        "build_recommender_service",
+        return_value=(service, media_repo, make_titler()),
     ):
         async with user_simulation(main_file=str(_MAIN_FILE)) as user:
             await user.open("/")
@@ -87,7 +115,9 @@ async def test_new_conversation_clears_transcript_and_resets_history() -> None:
     service = make_service()
     media_repo = MagicMock(spec=QdrantMediaItems)
     with patch.object(
-        service_cache, "build_recommender_service", return_value=(service, media_repo)
+        service_cache,
+        "build_recommender_service",
+        return_value=(service, media_repo, make_titler()),
     ):
         async with user_simulation(main_file=str(_MAIN_FILE)) as user:
             await user.open("/")
@@ -109,8 +139,9 @@ async def test_spoiler_toggle_warms_new_cache_without_clearing_transcript() -> N
     spoiler_free_service = make_service()
     media_repo = MagicMock(spec=QdrantMediaItems)
 
-    def fake_build(spoiler_free: bool) -> tuple[MagicMock, MagicMock]:
-        return (spoiler_free_service if spoiler_free else normal_service, media_repo)
+    def fake_build(spoiler_free: bool) -> tuple[MagicMock, MagicMock, MagicMock]:
+        service = spoiler_free_service if spoiler_free else normal_service
+        return (service, media_repo, make_titler())
 
     with patch.object(
         service_cache, "build_recommender_service", side_effect=fake_build
@@ -134,3 +165,130 @@ async def test_spoiler_toggle_warms_new_cache_without_clearing_transcript() -> N
 
     mock_build.assert_any_call(spoiler_free=False)
     mock_build.assert_any_call(spoiler_free=True)
+
+
+# --- Recent conversations ---
+
+
+@pytest.mark.anyio
+async def test_recent_list_shows_conversation_after_first_exchange(
+    _isolated_conversation_store: Path,
+) -> None:
+    service = make_service()
+    media_repo = MagicMock(spec=QdrantMediaItems)
+    titler = make_titler("Heist thrillers with a twist")
+    with patch.object(
+        service_cache,
+        "build_recommender_service",
+        return_value=(service, media_repo, titler),
+    ):
+        async with user_simulation(main_file=str(_MAIN_FILE)) as user:
+            await user.open("/")
+            await user.should_see(kind=ui.input)
+            user.find(kind=ui.input).type("Recommend a heist movie")
+            user.find(kind=ui.input).trigger("keydown.enter")
+            await user.should_see(content="Heat")
+
+            await user.should_see(content="Heist thrillers with a twist")
+
+    store = ConversationStore(str(_isolated_conversation_store))
+    recent = store.list_recent()
+    assert len(recent) == 1
+    assert recent[0].title == "Heist thrillers with a twist"
+
+
+@pytest.mark.anyio
+async def test_clicking_recent_conversation_replays_its_transcript() -> None:
+    service = make_service()
+    media_repo = MagicMock(spec=QdrantMediaItems)
+    titler = make_titler()
+    titler.title.side_effect = ["Heist thrillers with a twist", "Comfort films"]
+    service.chat_with_items.side_effect = [
+        ("1. **Heat** (1995)\nA tense heist.", [make_item("tt1", "Heat")]),
+        ("1. **Amelie** (2001)\nWarm and whimsical.", [make_item("tt2", "Amelie")]),
+    ]
+    with patch.object(
+        service_cache,
+        "build_recommender_service",
+        return_value=(service, media_repo, titler),
+    ):
+        async with user_simulation(main_file=str(_MAIN_FILE)) as user:
+            await user.open("/")
+            await user.should_see(kind=ui.input)
+
+            user.find(kind=ui.input).type("Recommend a heist movie")
+            user.find(kind=ui.input).trigger("keydown.enter")
+            await user.should_see(content="Heat")
+
+            user.find(content="New conversation").click()
+            await user.should_not_see(content="Heat")
+
+            user.find(kind=ui.input).type("Something cozy")
+            user.find(kind=ui.input).trigger("keydown.enter")
+            await user.should_see(content="Amelie")
+
+            user.find(content="Heist thrillers with a twist").click()
+            await user.should_see(content="Recommend a heist movie")
+            await user.should_see(content="Heat")
+            await user.should_not_see(content="Amelie")
+
+
+@pytest.mark.anyio
+async def test_sending_message_while_viewing_recent_starts_new_conversation() -> None:
+    service = make_service()
+    media_repo = MagicMock(spec=QdrantMediaItems)
+    titler = make_titler("Heist thrillers with a twist")
+    service.chat_with_items.side_effect = [
+        ("1. **Heat** (1995)\nA tense heist.", [make_item("tt1", "Heat")]),
+        ("1. **Amelie** (2001)\nWarm and whimsical.", [make_item("tt2", "Amelie")]),
+    ]
+    with patch.object(
+        service_cache,
+        "build_recommender_service",
+        return_value=(service, media_repo, titler),
+    ):
+        async with user_simulation(main_file=str(_MAIN_FILE)) as user:
+            await user.open("/")
+            await user.should_see(kind=ui.input)
+
+            user.find(kind=ui.input).type("Recommend a heist movie")
+            user.find(kind=ui.input).trigger("keydown.enter")
+            await user.should_see(content="Heat")
+
+            # View the just-created conversation from Recent (rather than
+            # continuing the live one), then send a new message — this
+            # should start a brand-new conversation, not append to the
+            # snapshot.
+            user.find(content="Heist thrillers with a twist").click()
+            await user.should_see(content="Heat")
+
+            user.find(kind=ui.input).type("Something cozy")
+            user.find(kind=ui.input).trigger("keydown.enter")
+            await user.should_see(content="Amelie")
+            await user.should_not_see(content="Recommend a heist movie")
+            await user.should_not_see(content="Heat")
+
+    service.reset_history.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_new_conversation_does_not_persist_empty_conversation(
+    _isolated_conversation_store: Path,
+) -> None:
+    service = make_service()
+    built = (service, MagicMock(spec=QdrantMediaItems), make_titler())
+    with patch.object(service_cache, "build_recommender_service", return_value=built):
+        async with user_simulation(main_file=str(_MAIN_FILE)) as user:
+            await user.open("/")
+            await user.should_see(kind=ui.input)
+            user.find(content="New conversation").click()
+            # on_new_conversation runs as a scheduled background task, not
+            # synchronously with the click — poll for it to finish before
+            # tearing down the session, or the click may not have run yet.
+            for _ in range(20):
+                if service.reset_history.call_count >= 1:
+                    break
+                await asyncio.sleep(0.05)
+
+    store = ConversationStore(str(_isolated_conversation_store))
+    assert store.list_recent() == []

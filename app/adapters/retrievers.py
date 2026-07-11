@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 
 from langchain_core.documents import Document
@@ -10,6 +11,8 @@ from langchain_qdrant import QdrantVectorStore
 from qdrant_client.models import FieldCondition, Filter, MatchValue
 
 from app.domain.ports import CandidateRetriever
+
+logger = logging.getLogger(__name__)
 
 
 class DirectSynopsisRetriever(CandidateRetriever):
@@ -133,6 +136,11 @@ class LLMKnowledgeRetriever(CandidateRetriever):
         try:
             titles: list[str] = json.loads(clean)
         except json.JSONDecodeError:
+            logger.warning(
+                "LLMKnowledgeRetriever got non-JSON response, contributing no "
+                "candidates: %r",
+                response,
+            )
             titles = []
         return [
             self._doc_by_title[t.lower()]
