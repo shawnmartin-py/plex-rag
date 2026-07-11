@@ -20,7 +20,8 @@ tries to create or repair the collection itself.
 - **CLI** — `plex-rag chat [--no-spoilers] [--verbose]`
   (`app/cli.py:chat` → `app/rag.py:main`). Runs a blocking `input()` loop in
   the terminal.
-- **Web UI** — `python nicegui_app/main.py`. `nicegui_app/service_cache.py`
+- **Web UI** — `plex-rag-web` (`nicegui_app/main.py:main`, registered as a
+  console script in `pyproject.toml`). `nicegui_app/service_cache.py`
   is a thin module-level cache (keyed by `spoiler_free` toggle value) around
   the same builder the CLI uses; `nicegui_app/main.py` drives the chat UI and
   per-tab state, `nicegui_app/components.py` renders each response.

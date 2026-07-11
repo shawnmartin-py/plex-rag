@@ -82,7 +82,7 @@ Create a `.env` file in the project root (or export these in your shell):
 | `QDRANT_URL` | No | URL of the Qdrant server `plex-ingest` populates (default: `http://localhost:6333`) |
 | `QDRANT_COLLECTION` | No | Qdrant collection name (default: `media_items`) |
 | `NICEGUI_STORAGE_SECRET` | No | Encrypts the web UI's per-browser-tab storage (default: a fixed dev value — set a real value in production) |
-| `PYTHONPATH` | No | Set to the project root if running without `uv run` or the installed CLI |
+| `PYTHONPATH` | No | Set to the project root if running without `uv run` or the installed console scripts (`plex-rag`, `plex-rag-web`) |
 
 ### Install
 
@@ -95,7 +95,7 @@ uv sync
 ### Web UI
 
 ```bash
-uv run python nicegui_app/main.py
+plex-rag-web
 ```
 
 Opens at `http://localhost:8080`.

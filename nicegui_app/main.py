@@ -322,7 +322,12 @@ async def index(client: Client) -> None:
     chat_input.enable()
 
 
-if __name__ in {"__main__", "__mp_main__"}:
+def main() -> None:
+    """Console-script entry point (`plex-rag-web`); also invoked when run as a script.
+
+    Named `main`, not `run` — `run` would shadow the `nicegui.run` module
+    imported above, which `on_send` calls as `run.io_bound(...)`.
+    """
     ui.run(
         title="Plex Movie Assistant",
         dark=True,
@@ -330,3 +335,7 @@ if __name__ in {"__main__", "__mp_main__"}:
         reload=False,
         favicon="🎬",
     )
+
+
+if __name__ in {"__main__", "__mp_main__"}:
+    main()
