@@ -1,3 +1,6 @@
+import asyncio
+
+from langchain_core.embeddings import Embeddings
 from langchain_google_genai import (
     ChatGoogleGenerativeAI,
     GoogleGenerativeAIEmbeddings,
@@ -31,6 +34,44 @@ _SAFETY_OFF = {
 }
 
 
+class _DedupingEmbeddings(Embeddings):
+    """Wraps an Embeddings instance so concurrent aembed_documents([text]) calls
+    for the identical single-text query are coalesced into one API call.
+    DirectSynopsisRetriever and LLMEnrichmentRetriever both embed the same raw
+    query in the same asyncio.gather fan-out (MovieRecommender.recommend),
+    otherwise doubling that round trip on every turn."""
+
+    def __init__(self, inner: Embeddings) -> None:
+        self._inner = inner
+        self._inflight: dict[str, asyncio.Task[list[float]]] = {}
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return self._inner.embed_documents(texts)
+
+    def embed_query(self, text: str) -> list[float]:
+        return self._inner.embed_query(text)
+
+    async def aembed_query(self, text: str) -> list[float]:
+        return await self._inner.aembed_query(text)
+
+    async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
+        if len(texts) != 1:
+            return await self._inner.aembed_documents(texts)
+        text = texts[0]
+        task = self._inflight.get(text)
+        if task is None:
+            task = asyncio.ensure_future(self._embed_one(text))
+            self._inflight[text] = task
+        try:
+            return [await asyncio.shield(task)]
+        finally:
+            if task.done():
+                self._inflight.pop(text, None)
+
+    async def _embed_one(self, text: str) -> list[float]:
+        return (await self._inner.aembed_documents([text]))[0]
+
+
 def build_recommender_service(
     spoiler_free: bool = False,
     include_knowledge_retriever: bool = False,
@@ -43,7 +84,9 @@ def build_recommender_service(
     client). `include_knowledge_retriever` adds `LLMKnowledgeRetriever`, which
     scans the full title list per turn — worth it for the CLI's
     non-latency-sensitive usage, skipped by default for the web UI."""
-    embeddings = GoogleGenerativeAIEmbeddings(model="gemini-embedding-001")
+    embeddings = _DedupingEmbeddings(
+        GoogleGenerativeAIEmbeddings(model="gemini-embedding-001")
+    )
     llm = ChatGoogleGenerativeAI(
         model="gemini-3.1-flash-lite", temperature=0, safety_settings=_SAFETY_OFF
     )

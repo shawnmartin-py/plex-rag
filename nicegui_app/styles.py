@@ -329,6 +329,14 @@ h1, h2, h3, h4, h5, h6 {
     padding: 2px 8px !important;
     color: var(--plex-ink) !important;
 }
+.plex-badge-link {
+    text-decoration: none !important;
+    cursor: pointer !important;
+}
+.plex-badge-link:hover {
+    background: rgba(255, 255, 255, 0.26) !important;
+    text-decoration: underline !important;
+}
 .plex-genres {
     font-size: 13px !important;
     color: var(--plex-ink-2) !important;

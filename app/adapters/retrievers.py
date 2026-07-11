@@ -35,9 +35,9 @@ class DirectSynopsisRetriever(CandidateRetriever):
             ]
         )
 
-    def retrieve(self, query: str) -> list[Document]:
-        vector = self._embeddings.embed_documents([query])[0]
-        return self._vector_store.similarity_search_by_vector(
+    async def retrieve(self, query: str) -> list[Document]:
+        vector = (await self._embeddings.aembed_documents([query]))[0]
+        return await self._vector_store.asimilarity_search_by_vector(
             vector, k=self._k, filter=self._filter
         )
 
@@ -71,7 +71,7 @@ class HyDEVectorRetriever(CandidateRetriever):
         vector_store: QdrantVectorStore,
         embeddings: Embeddings,
         llm: BaseChatModel,
-        k: int = 20,
+        k: int = 16,
     ) -> None:
         self._vector_store = vector_store
         self._embeddings = embeddings
@@ -85,10 +85,10 @@ class HyDEVectorRetriever(CandidateRetriever):
             ]
         )
 
-    def retrieve(self, query: str) -> list[Document]:
-        hypothetical = self._chain.invoke({"question": query})
-        vector = self._embeddings.embed_documents([hypothetical])[0]
-        return self._vector_store.similarity_search_by_vector(
+    async def retrieve(self, query: str) -> list[Document]:
+        hypothetical = await self._chain.ainvoke({"question": query})
+        vector = (await self._embeddings.aembed_documents([hypothetical]))[0]
+        return await self._vector_store.asimilarity_search_by_vector(
             vector, k=self._k, filter=self._filter
         )
 
@@ -128,8 +128,8 @@ class LLMKnowledgeRetriever(CandidateRetriever):
         self._movie_list = movie_list
         self._doc_by_title = doc_by_title
 
-    def retrieve(self, query: str) -> list[Document]:
-        response = self._chain.invoke(
+    async def retrieve(self, query: str) -> list[Document]:
+        response = await self._chain.ainvoke(
             {"question": query, "movie_list": self._movie_list}
         )
         clean = re.sub(r"```(?:json)?|```", "", response).strip()
@@ -175,8 +175,8 @@ class LLMEnrichmentRetriever(CandidateRetriever):
             else None
         )
 
-    def retrieve(self, query: str) -> list[Document]:
-        vector = self._embeddings.embed_documents([query])[0]
-        return self._vector_store.similarity_search_by_vector(
+    async def retrieve(self, query: str) -> list[Document]:
+        vector = (await self._embeddings.aembed_documents([query]))[0]
+        return await self._vector_store.asimilarity_search_by_vector(
             vector, k=self._k, filter=self._filter
         )

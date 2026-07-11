@@ -67,7 +67,10 @@ Per turn:
    follow-up ("what about something shorter?") into a standalone query using
    the conversation so far. Skipped on the first turn.
 2. **Retrieve** — every configured `CandidateRetriever` runs against the
-   (rewritten) query, each returning a list of `Document`s.
+   (rewritten) query, each returning a list of `Document`s. All retrievers
+   are independent of each other, so `MovieRecommender.recommend` fans them
+   out concurrently via `asyncio.gather` rather than awaiting them one at a
+   time.
 3. **Group** — `_group_docs` dedupes by `(imdb_id, embedding_type, section)`
    and merges all documents for the same film into one bucket, while also
    tracking which retriever(s) surfaced each film (`sources`) — this is what
@@ -79,9 +82,18 @@ Per turn:
 5. **Generate** — `RecommendationGenerator.generate` (Gemini) produces the
    final prose response, constrained by prompt to only recommend films present
    in the context.
-6. **Extract mentions** — `_find_mentioned_ids` finds which grouped films are
-   actually named in the response text (in first-mention order), so the UI can
-   pair each numbered recommendation with its `MediaItem` (poster, rating).
+6. **Extract mentions** — `_find_mentioned_ids` finds which grouped films the
+   response actually recommends, in the order it recommends them, so the UI
+   can pair each numbered recommendation with its `MediaItem` (poster,
+   rating). Each context block in step 4 carries its film's `imdb_id`
+   (`[imdb_id: tt1234567]`), and the generator is instructed to echo it back
+   as a hidden `<!-- imdb:tt1234567 -->` comment right after each numbered
+   heading — `_find_mentioned_ids` reads that marker directly rather than
+   fuzzy-matching title text against the response (which used to misfire on
+   sequels/reboots sharing a title). Fuzzy title search remains as a fallback
+   for the rare case the model omits the marker. `_strip_markers` removes the
+   markers from the response before it's returned to callers, so neither the
+   CLI nor the web UI ever displays them.
 
 ### Retrievers (`app/adapters/retrievers.py`)
 

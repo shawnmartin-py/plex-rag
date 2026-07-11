@@ -53,22 +53,22 @@ def service(
     return ConversationalRecommendationService(recommender)
 
 
-def test_first_question_returns_string_answer(
+async def test_first_question_returns_string_answer(
     service: ConversationalRecommendationService,
 ) -> None:
-    answer, _ = service.chat("recommend a dark thriller")
+    answer, _ = await service.chat("recommend a dark thriller")
     assert isinstance(answer, str)
     assert len(answer) > 0
 
 
-def test_first_question_returns_generator_response(
+async def test_first_question_returns_generator_response(
     service: ConversationalRecommendationService,
 ) -> None:
-    answer, _ = service.chat("recommend a dark thriller")
+    answer, _ = await service.chat("recommend a dark thriller")
     assert answer == RECOMMENDATION_RESPONSE
 
 
-def test_follow_up_question_uses_rewriter(
+async def test_follow_up_question_uses_rewriter(
     qdrant_store: QdrantVectorStore, stub_embeddings: StubEmbeddings
 ) -> None:
     rewriter_llm = StubLLM(responses=[REWRITER_RESPONSE])
@@ -87,23 +87,23 @@ def test_follow_up_question_uses_rewriter(
     )
     svc = ConversationalRecommendationService(recommender)
 
-    svc.chat("recommend a dark thriller")
+    await svc.chat("recommend a dark thriller")
     # The rewriter LLM should be invoked on the follow-up since history is non-empty
     # If rewriter wasn't called, the LLM index wouldn't have advanced
-    svc.chat("something more recent from those?")
+    await svc.chat("something more recent from those?")
     assert rewriter_llm._index == 1
 
 
-def test_history_is_accumulated_across_turns(
+async def test_history_is_accumulated_across_turns(
     service: ConversationalRecommendationService,
 ) -> None:
-    service.chat("first question")
-    service.chat("second question")
+    await service.chat("first question")
+    await service.chat("second question")
     # History has 2 exchanges (4 messages); verify via the service's internal state
     assert len(service._history) == 4
 
 
-def test_knowledge_retriever_contributes_docs_to_context(
+async def test_knowledge_retriever_contributes_docs_to_context(
     qdrant_store: QdrantVectorStore, stub_embeddings: StubEmbeddings
 ) -> None:
     # Use a knowledge LLM that returns a title only in doc_by_title, not in RAG results
@@ -115,7 +115,7 @@ def test_knowledge_retriever_contributes_docs_to_context(
     captured_contexts: list[str] = []
 
     class CapturingGenerator(GeminiRecommendationGenerator):
-        def generate(
+        async def generate(
             self, question: str, context: str, history: list[BaseMessage]
         ) -> str:
             captured_contexts.append(context)
@@ -131,7 +131,7 @@ def test_knowledge_retriever_contributes_docs_to_context(
         rewriter=GeminiQueryRewriter(StubLLM(responses=[REWRITER_RESPONSE])),
     )
     svc = ConversationalRecommendationService(recommender)
-    svc.chat("dark thriller with female lead")
+    await svc.chat("dark thriller with female lead")
 
     assert len(captured_contexts) == 1
     assert "The Handmaiden" in captured_contexts[0]

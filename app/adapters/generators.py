@@ -1,3 +1,5 @@
+from collections.abc import AsyncIterator
+
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 from langchain_core.output_parsers import StrOutputParser
@@ -25,8 +27,8 @@ class GeminiQueryRewriter(QueryRewriter):
     def __init__(self, llm: BaseChatModel) -> None:
         self._chain = self._prompt | llm | StrOutputParser()
 
-    def rewrite(self, question: str, history: list[BaseMessage]) -> str:
-        return self._chain.invoke({"input": question, "chat_history": history})
+    async def rewrite(self, question: str, history: list[BaseMessage]) -> str:
+        return await self._chain.ainvoke({"input": question, "chat_history": history})
 
 
 class GeminiConversationTitler(ConversationTitler):
@@ -49,11 +51,20 @@ class GeminiConversationTitler(ConversationTitler):
     def __init__(self, llm: BaseChatModel) -> None:
         self._chain = self._prompt | llm | StrOutputParser()
 
-    def title(self, first_question: str, first_answer: str) -> str:
-        return self._chain.invoke(
+    async def title(self, first_question: str, first_answer: str) -> str:
+        response = await self._chain.ainvoke(
             {"question": first_question, "answer": first_answer}
-        ).strip()
+        )
+        return response.strip()
 
+
+_IMDB_MARKER_INSTRUCTION = (
+    "- Immediately after each numbered heading line, on its own line, insert a "
+    "hidden marker in the exact form `<!-- imdb:tt1234567 -->`, using that film's "
+    "imdb_id exactly as given in its context block (`[imdb_id: ...]`). This marker "
+    "must never be visible or mentioned as text — it exists only so the app can "
+    "match your recommendation to the right film."
+)
 
 _RECOMMENDATION_GUIDELINES = (
     "- Recommend only movies from the context above. Never suggest anything outside "
@@ -67,6 +78,7 @@ _RECOMMENDATION_GUIDELINES = (
     'Always lead with "**Why it fits:**"; choose any further labels to suit the '
     'film (e.g. "**Tone & pacing:**", "**The twist:**", "**Content note:**") — '
     "only where they genuinely apply. Keep each bullet to one or two sentences.\n"
+    f"{_IMDB_MARKER_INSTRUCTION}\n"
     "- If a movie is a weak match, acknowledge it rather than overselling it.\n"
     "- Note content ratings where relevant.\n"
     "- If nothing in the library fits well, say so directly and briefly explain why."
@@ -83,6 +95,7 @@ _SPOILER_FREE_GUIDELINES = (
     'Always lead with "**Why it fits:**"; choose any further labels to suit the '
     'film (e.g. "**Tone & pacing:**", "**Style:**", "**Content note:**") — only '
     "where they genuinely apply. Keep each bullet to one or two sentences.\n"
+    f"{_IMDB_MARKER_INSTRUCTION}\n"
     "- IMPORTANT: Do NOT reveal any plot details, story twists, character fates, or "
     "story outcomes. Keep all reasoning completely spoiler-free.\n"
     "- If a movie is a weak match, acknowledge it rather than overselling it.\n"
@@ -118,7 +131,17 @@ class GeminiRecommendationGenerator(RecommendationGenerator):
         )
         self._chain = prompt | llm | StrOutputParser()
 
-    def generate(self, question: str, context: str, history: list[BaseMessage]) -> str:
-        return self._chain.invoke(
+    async def generate(
+        self, question: str, context: str, history: list[BaseMessage]
+    ) -> str:
+        return await self._chain.ainvoke(
             {"input": question, "context": context, "chat_history": history}
         )
+
+    async def stream(
+        self, question: str, context: str, history: list[BaseMessage]
+    ) -> AsyncIterator[str]:
+        async for chunk in self._chain.astream(
+            {"input": question, "context": context, "chat_history": history}
+        ):
+            yield chunk

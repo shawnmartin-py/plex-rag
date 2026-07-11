@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from typing import Protocol
 
 from langchain_core.documents import Document
@@ -11,12 +12,12 @@ class CandidateRetriever(ABC):
     name: str
 
     @abstractmethod
-    def retrieve(self, query: str) -> list[Document]: ...
+    async def retrieve(self, query: str) -> list[Document]: ...
 
 
 class QueryRewriter(ABC):
     @abstractmethod
-    def rewrite(self, question: str, history: list[BaseMessage]) -> str: ...
+    async def rewrite(self, question: str, history: list[BaseMessage]) -> str: ...
 
 
 class ConversationTitler(ABC):
@@ -24,14 +25,21 @@ class ConversationTitler(ABC):
     label its entry in the web UI's Recent-conversations sidebar list."""
 
     @abstractmethod
-    def title(self, first_question: str, first_answer: str) -> str: ...
+    async def title(self, first_question: str, first_answer: str) -> str: ...
 
 
 class RecommendationGenerator(ABC):
     @abstractmethod
-    def generate(
+    async def generate(
         self, question: str, context: str, history: list[BaseMessage]
     ) -> str: ...
+
+    @abstractmethod
+    def stream(
+        self, question: str, context: str, history: list[BaseMessage]
+    ) -> AsyncIterator[str]:
+        """Yield the answer as incremental text deltas rather than waiting for
+        the full response — the streaming counterpart to `generate`."""
 
 
 class MediaItemLookup(Protocol):

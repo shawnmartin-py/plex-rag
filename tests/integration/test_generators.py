@@ -1,5 +1,5 @@
 from typing import Any, cast
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
@@ -23,7 +23,7 @@ def rewriter() -> tuple[GeminiQueryRewriter, MagicMock]:
     instance = GeminiQueryRewriter(MagicMock())
     mock_chain = MagicMock()
     instance._chain = mock_chain
-    mock_chain.invoke.return_value = "standalone rewritten question"
+    mock_chain.ainvoke = AsyncMock(return_value="standalone rewritten question")
     return instance, mock_chain
 
 
@@ -32,7 +32,7 @@ def generator() -> tuple[GeminiRecommendationGenerator, MagicMock]:
     instance = GeminiRecommendationGenerator(MagicMock())
     mock_chain = MagicMock()
     instance._chain = mock_chain
-    mock_chain.invoke.return_value = "here are my recommendations"
+    mock_chain.ainvoke = AsyncMock(return_value="here are my recommendations")
     return instance, mock_chain
 
 
@@ -41,7 +41,7 @@ def spoiler_free_generator() -> tuple[GeminiRecommendationGenerator, MagicMock]:
     instance = GeminiRecommendationGenerator(MagicMock(), spoiler_free=True)
     mock_chain = MagicMock()
     instance._chain = mock_chain
-    mock_chain.invoke.return_value = "here are my recommendations"
+    mock_chain.ainvoke = AsyncMock(return_value="here are my recommendations")
     return instance, mock_chain
 
 
@@ -50,85 +50,87 @@ def titler() -> tuple[GeminiConversationTitler, MagicMock]:
     instance = GeminiConversationTitler(MagicMock())
     mock_chain = MagicMock()
     instance._chain = mock_chain
-    mock_chain.invoke.return_value = "  Heist thrillers with a twist  "
+    mock_chain.ainvoke = AsyncMock(return_value="  Heist thrillers with a twist  ")
     return instance, mock_chain
 
 
 # --- GeminiQueryRewriter ---
 
 
-def test_rewriter_returns_rewritten_question(
+async def test_rewriter_returns_rewritten_question(
     rewriter: tuple[GeminiQueryRewriter, MagicMock],
 ) -> None:
     instance, _ = rewriter
-    result = instance.rewrite("something like the last one", history=[])
+    result = await instance.rewrite("something like the last one", history=[])
     assert result == "standalone rewritten question"
 
 
-def test_rewriter_passes_question_as_input(
+async def test_rewriter_passes_question_as_input(
     rewriter: tuple[GeminiQueryRewriter, MagicMock],
 ) -> None:
     instance, mock_chain = rewriter
-    instance.rewrite("follow-up question", history=[])
-    call_args = mock_chain.invoke.call_args[0][0]
+    await instance.rewrite("follow-up question", history=[])
+    call_args = mock_chain.ainvoke.call_args[0][0]
     assert call_args["input"] == "follow-up question"
 
 
-def test_rewriter_passes_history(
+async def test_rewriter_passes_history(
     rewriter: tuple[GeminiQueryRewriter, MagicMock],
 ) -> None:
     instance, mock_chain = rewriter
     history = [HumanMessage(content="first"), AIMessage(content="response")]
-    instance.rewrite("follow-up", history=history)
-    call_args = mock_chain.invoke.call_args[0][0]
+    await instance.rewrite("follow-up", history=history)
+    call_args = mock_chain.ainvoke.call_args[0][0]
     assert call_args["chat_history"] == history
 
 
-def test_rewriter_passes_empty_history(
+async def test_rewriter_passes_empty_history(
     rewriter: tuple[GeminiQueryRewriter, MagicMock],
 ) -> None:
     instance, mock_chain = rewriter
-    instance.rewrite("standalone question", history=[])
-    call_args = mock_chain.invoke.call_args[0][0]
+    await instance.rewrite("standalone question", history=[])
+    call_args = mock_chain.ainvoke.call_args[0][0]
     assert call_args["chat_history"] == []
 
 
 # --- GeminiRecommendationGenerator ---
 
 
-def test_generator_returns_answer(
+async def test_generator_returns_answer(
     generator: tuple[GeminiRecommendationGenerator, MagicMock],
 ) -> None:
     instance, _ = generator
-    result = instance.generate("recommend a thriller", "some context", history=[])
+    result = await instance.generate("recommend a thriller", "some context", history=[])
     assert result == "here are my recommendations"
 
 
-def test_generator_passes_question(
+async def test_generator_passes_question(
     generator: tuple[GeminiRecommendationGenerator, MagicMock],
 ) -> None:
     instance, mock_chain = generator
-    instance.generate("recommend a thriller", "context", history=[])
-    call_args = mock_chain.invoke.call_args[0][0]
+    await instance.generate("recommend a thriller", "context", history=[])
+    call_args = mock_chain.ainvoke.call_args[0][0]
     assert call_args["input"] == "recommend a thriller"
 
 
-def test_generator_passes_context(
+async def test_generator_passes_context(
     generator: tuple[GeminiRecommendationGenerator, MagicMock],
 ) -> None:
     instance, mock_chain = generator
-    instance.generate("question", "Title: Parasite\n---\nTitle: Oldboy", history=[])
-    call_args = mock_chain.invoke.call_args[0][0]
+    await instance.generate(
+        "question", "Title: Parasite\n---\nTitle: Oldboy", history=[]
+    )
+    call_args = mock_chain.ainvoke.call_args[0][0]
     assert call_args["context"] == "Title: Parasite\n---\nTitle: Oldboy"
 
 
-def test_generator_passes_history(
+async def test_generator_passes_history(
     generator: tuple[GeminiRecommendationGenerator, MagicMock],
 ) -> None:
     instance, mock_chain = generator
     history = [HumanMessage(content="hi"), AIMessage(content="hello")]
-    instance.generate("question", "context", history=history)
-    call_args = mock_chain.invoke.call_args[0][0]
+    await instance.generate("question", "context", history=history)
+    call_args = mock_chain.ainvoke.call_args[0][0]
     assert call_args["chat_history"] == history
 
 
@@ -157,48 +159,48 @@ def test_generator_spoiler_free_default_differs_from_spoiler_free() -> None:
     assert _system_template(default) != _system_template(sf)
 
 
-def test_spoiler_free_generator_returns_answer(
+async def test_spoiler_free_generator_returns_answer(
     spoiler_free_generator: tuple[GeminiRecommendationGenerator, MagicMock],
 ) -> None:
     instance, _ = spoiler_free_generator
-    result = instance.generate("recommend a thriller", "some context", history=[])
+    result = await instance.generate("recommend a thriller", "some context", history=[])
     assert result == "here are my recommendations"
 
 
-def test_spoiler_free_generator_passes_question(
+async def test_spoiler_free_generator_passes_question(
     spoiler_free_generator: tuple[GeminiRecommendationGenerator, MagicMock],
 ) -> None:
     instance, mock_chain = spoiler_free_generator
-    instance.generate("recommend a thriller", "context", history=[])
-    call_args = mock_chain.invoke.call_args[0][0]
+    await instance.generate("recommend a thriller", "context", history=[])
+    call_args = mock_chain.ainvoke.call_args[0][0]
     assert call_args["input"] == "recommend a thriller"
 
 
-def test_spoiler_free_generator_passes_context(
+async def test_spoiler_free_generator_passes_context(
     spoiler_free_generator: tuple[GeminiRecommendationGenerator, MagicMock],
 ) -> None:
     instance, mock_chain = spoiler_free_generator
-    instance.generate("question", "Title: Parasite", history=[])
-    call_args = mock_chain.invoke.call_args[0][0]
+    await instance.generate("question", "Title: Parasite", history=[])
+    call_args = mock_chain.ainvoke.call_args[0][0]
     assert call_args["context"] == "Title: Parasite"
 
 
 # --- GeminiConversationTitler ---
 
 
-def test_titler_returns_stripped_title(
+async def test_titler_returns_stripped_title(
     titler: tuple[GeminiConversationTitler, MagicMock],
 ) -> None:
     instance, _ = titler
-    result = instance.title("recommend a heist movie", "Here's Heat (1995)...")
+    result = await instance.title("recommend a heist movie", "Here's Heat (1995)...")
     assert result == "Heist thrillers with a twist"
 
 
-def test_titler_passes_question_and_answer_to_chain(
+async def test_titler_passes_question_and_answer_to_chain(
     titler: tuple[GeminiConversationTitler, MagicMock],
 ) -> None:
     instance, mock_chain = titler
-    instance.title("recommend a heist movie", "Here's Heat (1995)...")
-    call_args = mock_chain.invoke.call_args[0][0]
+    await instance.title("recommend a heist movie", "Here's Heat (1995)...")
+    call_args = mock_chain.ainvoke.call_args[0][0]
     assert call_args["question"] == "recommend a heist movie"
     assert call_args["answer"] == "Here's Heat (1995)..."

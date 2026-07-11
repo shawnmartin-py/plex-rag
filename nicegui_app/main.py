@@ -9,12 +9,17 @@ from nicegui.events import ValueChangeEventArguments
 
 from app.config import CONVERSATIONS_DB_PATH, NICEGUI_STORAGE_SECRET
 from app.domain.ports import ConversationTitler
+from app.domain.recommender import TextDelta
 from app.models.conversation import Conversation, ConversationMessage, MessageRole
 from app.models.media_item import MediaItem, StreamingSource, VideoResolution
 from app.repositories.conversation_store import ConversationStore
 from app.repositories.qdrant_media_items import QdrantMediaItems
-from app.services.recommendation import ConversationalRecommendationService
-from nicegui_app.components import render_chat_row, render_recommendations
+from app.services.recommendation import CardReady, ConversationalRecommendationService
+from nicegui_app.components import (
+    render_chat_row,
+    render_movie_card,
+    render_recommendations,
+)
 from nicegui_app.service_cache import get_service
 from nicegui_app.styles import SIDEBAR_WIDTH_PX, apply_theme
 
@@ -223,8 +228,7 @@ async def index(client: Client) -> None:
         title = existing.title if existing else None
         if is_first_exchange:
             try:
-                title = await run.io_bound(
-                    titler.title,
+                title = await titler.title(
                     latest_question,
                     latest_answer[:_MAX_ANSWER_CHARS_FOR_TITLE],
                 )
@@ -283,15 +287,19 @@ async def index(client: Client) -> None:
         with assistant_body:
             spinner = ui.spinner()
 
-        result = await run.io_bound(service.chat_with_items, prompt, media_repo)
-        items: list[MediaItem]
-        if result is None:
-            answer, items = "Something went wrong. Please try again.", []
-        else:
-            answer, items = result
+        streamed = await service.chat_with_items_stream(prompt, media_repo)
 
         spinner.delete()
-        render_recommendations(assistant_body, answer, items)
+        top_pick = True
+        async for event in streamed.events:
+            with assistant_body:
+                if isinstance(event, TextDelta):
+                    ui.markdown(event.text).classes("plex-msg-prose")
+                elif isinstance(event, CardReady) and event.item is not None:
+                    render_movie_card(event.item, event.body_md, top_pick=top_pick)
+                    top_pick = False
+
+        answer, items = streamed.answer, streamed.items
         messages.append(
             {
                 "role": "assistant",
@@ -326,7 +334,8 @@ def main() -> None:
     """Console-script entry point (`plex-rag-web`); also invoked when run as a script.
 
     Named `main`, not `run` — `run` would shadow the `nicegui.run` module
-    imported above, which `on_send` calls as `run.io_bound(...)`.
+    imported above, which `_persist_current_conversation` calls as
+    `run.io_bound(...)` (DuckDB has no async driver).
     """
     ui.run(
         title="Plex Movie Assistant",

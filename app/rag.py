@@ -1,3 +1,5 @@
+import asyncio
+
 from app.bootstrap import build_recommender_service
 from app.domain.recommender import CoverageReport
 
@@ -32,7 +34,7 @@ def _print_coverage(coverage: CoverageReport) -> None:
     print(f"\n  Coverage: {summary}\n")
 
 
-def main(spoiler_free: bool = False, verbose: bool = False) -> None:
+async def main(spoiler_free: bool = False, verbose: bool = False) -> None:
     service, _, _ = build_recommender_service(
         spoiler_free=spoiler_free, include_knowledge_retriever=True
     )
@@ -48,11 +50,11 @@ def main(spoiler_free: bool = False, verbose: bool = False) -> None:
             break
         if not question:
             continue
-        answer, coverage = service.chat(question, verbose=verbose)
+        answer, coverage = await service.chat(question, verbose=verbose)
         print(f"\nBot: {answer}\n")
         if coverage is not None:
             _print_coverage(coverage)
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

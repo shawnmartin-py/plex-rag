@@ -1,3 +1,5 @@
+import asyncio
+
 import typer
 
 app = typer.Typer(
@@ -24,4 +26,4 @@ def chat(
     """Start an interactive AI movie recommendation session."""
     from app.rag import main
 
-    main(spoiler_free=no_spoilers, verbose=verbose)
+    asyncio.run(main(spoiler_free=no_spoilers, verbose=verbose))

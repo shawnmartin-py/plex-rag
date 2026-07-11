@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import AsyncIterator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -12,7 +13,12 @@ from app.domain.ports import ConversationTitler
 from app.models.media_item import MediaItem
 from app.repositories.conversation_store import ConversationStore
 from app.repositories.qdrant_media_items import QdrantMediaItems
-from app.services.recommendation import ConversationalRecommendationService
+from app.services.recommendation import (
+    CardReady,
+    ChatStreamEvent,
+    ConversationalRecommendationService,
+    StreamedChatAnswer,
+)
 
 # `user_simulation(main_file=...)` runs nicegui_app/main.py itself (via
 # runpy, as if executed directly) inside an isolated in-process ASGI app, so
@@ -33,9 +39,23 @@ def make_item(imdb_id: str, title: str) -> MediaItem:
     )
 
 
+async def _aevents(items: list[MediaItem]) -> AsyncIterator[ChatStreamEvent]:
+    for item in items:
+        yield CardReady(item=item, body_md=f"Reasoning for {item.title}.")
+
+
+def make_answer(
+    answer: str, items: list[MediaItem] | None = None
+) -> StreamedChatAnswer:
+    resolved_items = items if items is not None else [make_item("tt1", "Heat")]
+    return StreamedChatAnswer(
+        events=_aevents(resolved_items), answer=answer, items=resolved_items
+    )
+
+
 def make_service(answer: str = "1. **Heat** (1995)\nA tense heist.") -> MagicMock:
     service = MagicMock(spec=ConversationalRecommendationService)
-    service.chat_with_items.return_value = (answer, [make_item("tt1", "Heat")])
+    service.chat_with_items_stream.return_value = make_answer(answer)
     return service
 
 
@@ -105,7 +125,7 @@ async def test_send_message_renders_user_and_assistant_turns() -> None:
             await user.should_see(content="Recommend a heist movie")
             await user.should_see(content="Heat")
 
-    service.chat_with_items.assert_called_once_with(
+    service.chat_with_items_stream.assert_called_once_with(
         "Recommend a heist movie", media_repo
     )
 
@@ -203,9 +223,11 @@ async def test_clicking_recent_conversation_replays_its_transcript() -> None:
     media_repo = MagicMock(spec=QdrantMediaItems)
     titler = make_titler()
     titler.title.side_effect = ["Heist thrillers with a twist", "Comfort films"]
-    service.chat_with_items.side_effect = [
-        ("1. **Heat** (1995)\nA tense heist.", [make_item("tt1", "Heat")]),
-        ("1. **Amelie** (2001)\nWarm and whimsical.", [make_item("tt2", "Amelie")]),
+    service.chat_with_items_stream.side_effect = [
+        make_answer("1. **Heat** (1995)\nA tense heist.", [make_item("tt1", "Heat")]),
+        make_answer(
+            "1. **Amelie** (2001)\nWarm and whimsical.", [make_item("tt2", "Amelie")]
+        ),
     ]
     with patch.object(
         service_cache,
@@ -238,9 +260,11 @@ async def test_sending_message_while_viewing_recent_starts_new_conversation() ->
     service = make_service()
     media_repo = MagicMock(spec=QdrantMediaItems)
     titler = make_titler("Heist thrillers with a twist")
-    service.chat_with_items.side_effect = [
-        ("1. **Heat** (1995)\nA tense heist.", [make_item("tt1", "Heat")]),
-        ("1. **Amelie** (2001)\nWarm and whimsical.", [make_item("tt2", "Amelie")]),
+    service.chat_with_items_stream.side_effect = [
+        make_answer("1. **Heat** (1995)\nA tense heist.", [make_item("tt1", "Heat")]),
+        make_answer(
+            "1. **Amelie** (2001)\nWarm and whimsical.", [make_item("tt2", "Amelie")]
+        ),
     ]
     with patch.object(
         service_cache,

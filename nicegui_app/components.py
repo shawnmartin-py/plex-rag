@@ -7,14 +7,14 @@ from app.models.media_item import MediaItem, StreamingSource
 
 # Streaming-platform logos live under nicegui_app/static/logos (see main.py's
 # add_static_files call). A platform without a mapped logo here still gets a plain
-# text badge — see the fallback in _render_movie_card.
+# text badge — see the fallback in render_movie_card.
 _PLATFORM_LOGOS: dict[StreamingSource, str] = {
     StreamingSource.NETFLIX: "/static/logos/netflix.png",
     StreamingSource.DISNEY_PLUS: "/static/logos/disney_plus.png",
 }
 
 
-def _render_movie_card(item: MediaItem, body_md: str, top_pick: bool) -> None:
+def render_movie_card(item: MediaItem, body_md: str, top_pick: bool) -> None:
     """Render one recommendation as a poster-backdrop card.
 
     The header (title, year, rating, genres) comes from the item's structured
@@ -22,6 +22,11 @@ def _render_movie_card(item: MediaItem, body_md: str, top_pick: bool) -> None:
     the caller. The card's backdrop is a blurred copy of the movie's real
     poster behind a left-to-right dark scrim, so each card picks up its own
     artwork's palette while the text column stays high-contrast.
+
+    Must be called inside a `with <container>:` block, same as any other
+    NiceGUI element construction — used both for the batch (replay-from-
+    Recent) render below and for live per-section rendering as a streamed
+    answer completes each recommendation.
     """
     url = item.thumb_url.replace('"', "%22") if item.thumb_url else None
     with ui.element("article").classes("plex-card w-full"):
@@ -48,7 +53,11 @@ def _render_movie_card(item: MediaItem, body_md: str, top_pick: bool) -> None:
                     ui.label(str(item.year)).classes("plex-card-year")
                 with ui.row().classes("plex-card-meta items-center"):
                     if item.imdb_rating:
-                        ui.label(f"★ {item.imdb_rating}").classes("plex-badge")
+                        ui.link(
+                            f"★ {item.imdb_rating}",
+                            f"https://www.imdb.com/title/{item.imdb_id}/",
+                            new_tab=True,
+                        ).classes("plex-badge plex-badge-link")
                     badge = describe_media_badge(item)
                     if isinstance(badge, PlatformBadge):
                         logo_url = _PLATFORM_LOGOS.get(badge.platform)
@@ -89,7 +98,7 @@ def render_recommendations(
         for is_numbered, text in sections:
             if is_numbered and item_idx < len(items):
                 item = items[item_idx]
-                _render_movie_card(
+                render_movie_card(
                     item, strip_section_heading(text), top_pick=item_idx == 0
                 )
                 item_idx += 1
