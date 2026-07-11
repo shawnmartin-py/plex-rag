@@ -20,7 +20,7 @@ change the other side and this doc in the same change.
 - The `docker-compose.yml` defining the Qdrant service and its persistent
   volume lives in `plex-ingest` (the data-owning repo).
 - `plex-rag` does **not** start or manage the Qdrant container. On startup
-  (CLI `chat` and the Streamlit app) it does a preflight check: connect to
+  (CLI `chat` and the NiceGUI web app) it does a preflight check: connect to
   the configured URL, confirm the collection exists, and confirm
   `vectors_config.size` matches [Embedding model](#embedding-model) below.
   If the check fails, fail fast with a clear "Qdrant isn't reachable / start
@@ -72,6 +72,8 @@ is the only cross-repo data dependency.
 | `content_rating` | string | e.g. `PG-13` |
 | `genres` | string | comma-joined, not a list (`", ".join(genres)`) |
 | `thumb_url` | string \| null | Plex-hosted poster URL |
+| `video_resolution` | string \| null | Raw Plex `Media.videoResolution` value (`sd`/`480`/`576`/`720`/`1080`/`4k`). Mutually exclusive with `source_platform` — null whenever `source_platform` is set. |
+| `source_platform` | string \| null | `"Netflix"` or `"Disney+"` — set when the library item is actually a short placeholder clip standing in for a movie only available on that streaming platform (a real file, ~4s long, named `"Title - Year - (Platform).ext"`), not a real download. Mutually exclusive with `video_resolution`. |
 | `embedding_type` | string | `"synopsis"` or `"enriched"` — see below |
 | `section` | string | only present when `embedding_type == "enriched"`: `craft` / `meaning` / `context` |
 

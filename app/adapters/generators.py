@@ -36,6 +36,11 @@ _RECOMMENDATION_GUIDELINES = (
     "- For each recommendation, explain specifically why it fits: reference themes, "
     "tone, pacing, director style, or cultural context relevant to the request. Avoid "
     "generic praise.\n"
+    "- Format each recommendation as a numbered item: a heading line with the title "
+    "and year, then 2-3 bullets that each start with a short bold run-in label. "
+    'Always lead with "**Why it fits:**"; choose any further labels to suit the '
+    'film (e.g. "**Tone & pacing:**", "**The twist:**", "**Content note:**") — '
+    "only where they genuinely apply. Keep each bullet to one or two sentences.\n"
     "- If a movie is a weak match, acknowledge it rather than overselling it.\n"
     "- Note content ratings where relevant.\n"
     "- If nothing in the library fits well, say so directly and briefly explain why."
@@ -47,6 +52,11 @@ _SPOILER_FREE_GUIDELINES = (
     "- Rank recommendations by how well they match the request — best match first.\n"
     "- For each recommendation, explain why it fits using only genre, tone, pacing, "
     "director style, cast, or cultural context. Avoid generic praise.\n"
+    "- Format each recommendation as a numbered item: a heading line with the title "
+    "and year, then 2-3 bullets that each start with a short bold run-in label. "
+    'Always lead with "**Why it fits:**"; choose any further labels to suit the '
+    'film (e.g. "**Tone & pacing:**", "**Style:**", "**Content note:**") — only '
+    "where they genuinely apply. Keep each bullet to one or two sentences.\n"
     "- IMPORTANT: Do NOT reveal any plot details, story twists, character fates, or "
     "story outcomes. Keep all reasoning completely spoiler-free.\n"
     "- If a movie is a weak match, acknowledge it rather than overselling it.\n"

@@ -34,12 +34,13 @@ def build_recommender_service(
     spoiler_free: bool = False,
     include_knowledge_retriever: bool = False,
 ) -> tuple[ConversationalRecommendationService, QdrantMediaItems]:
-    """Composition root shared by the CLI (`app/rag.py`) and Streamlit
-    (`streamlit_app/init.py`) entry points — connects to Qdrant, wires up the
-    retriever stack, and returns the chat service plus a MediaItem lookup for
-    rendering. `include_knowledge_retriever` adds `LLMKnowledgeRetriever`,
-    which scans the full title list per turn — worth it for the CLI's
-    non-latency-sensitive usage, skipped by default for Streamlit."""
+    """Composition root shared by the CLI (`app/rag.py`) and NiceGUI
+    (`nicegui_app/service_cache.py`) entry points — connects to Qdrant, wires
+    up the retriever stack, and returns the chat service plus a MediaItem
+    lookup for rendering. `include_knowledge_retriever` adds
+    `LLMKnowledgeRetriever`, which scans the full title list per turn — worth
+    it for the CLI's non-latency-sensitive usage, skipped by default for the
+    web UI."""
     embeddings = GoogleGenerativeAIEmbeddings(model="gemini-embedding-001")
     llm = ChatGoogleGenerativeAI(
         model="gemini-3.1-flash-lite", temperature=0, safety_settings=_SAFETY_OFF

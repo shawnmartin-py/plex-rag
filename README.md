@@ -45,7 +45,7 @@ The strict constraint throughout is that it only recommends movies from your lib
 
 ### Web UI
 
-A Streamlit browser interface for the recommendation chat. Runs locally and serves the app at `http://localhost:8501`.
+A NiceGUI browser interface for the recommendation chat. Runs locally and serves the app at `http://localhost:8080`.
 
 ![Web UI — conversational recommendations with movie cards](docs/images/web-ui-recommendations.png)
 
@@ -81,6 +81,7 @@ Create a `.env` file in the project root (or export these in your shell):
 | `GOOGLE_API_KEY` | Yes | Google Gemini API key — used for embeddings and generation |
 | `QDRANT_URL` | No | URL of the Qdrant server `plex-ingest` populates (default: `http://localhost:6333`) |
 | `QDRANT_COLLECTION` | No | Qdrant collection name (default: `media_items`) |
+| `NICEGUI_STORAGE_SECRET` | No | Encrypts the web UI's per-browser-tab storage (default: a fixed dev value — set a real value in production) |
 | `PYTHONPATH` | No | Set to the project root if running without `uv run` or the installed CLI |
 
 ### Install
@@ -94,10 +95,10 @@ uv sync
 ### Web UI
 
 ```bash
-uv run streamlit run streamlit_app/main.py
+uv run python nicegui_app/main.py
 ```
 
-Opens at `http://localhost:8501`.
+Opens at `http://localhost:8080`.
 
 ### CLI
 
@@ -118,7 +119,7 @@ plex-rag chat --verbose
 app/
 ├── cli.py                      # Typer CLI entrypoint
 ├── rag.py                      # CLI chat entrypoint: input loop over build_recommender_service
-├── bootstrap.py                # build_recommender_service: shared composition root (CLI + Streamlit)
+├── bootstrap.py                # build_recommender_service: shared composition root (CLI + NiceGUI)
 ├── config.py                   # env-driven settings
 ├── domain/
 │   ├── recommender.py          # MovieRecommender: orchestrates retrieve → generate
@@ -131,13 +132,16 @@ app/
 │   └── recommender_vector_store.py  # read-only Qdrant connect + preflight checks
 ├── repositories/
 │   └── qdrant_media_items.py   # QdrantMediaItems: MediaItem lookup sourced from Qdrant payloads
+├── formatting/
+│   └── sections.py             # parse_sections/split_trailing_notes: LLM response → per-film sections (framework-agnostic)
 └── models/
     └── media_item.py           # MediaItem dataclass (read-side shape)
 
-streamlit_app/
-├── main.py                     # Streamlit entrypoint — layout, session state, chat loop
-├── init.py                     # @st.cache_resource wrapper around app.bootstrap.build_recommender_service
-└── components.py               # render_recommendations: parses LLM response into per-film poster + text cards
+nicegui_app/
+├── main.py                     # NiceGUI entrypoint — layout, per-tab storage, chat loop, ui.run()
+├── service_cache.py            # get_service: cache around app.bootstrap.build_recommender_service, keyed by spoiler_free
+├── components.py                # render_recommendations/render_chat_row: build chat rows and per-film poster + text cards
+└── styles.py                   # dark theme CSS matching the original Streamlit look
 ```
 
 See [docs/recommender.md](docs/recommender.md) for a deeper walkthrough of the

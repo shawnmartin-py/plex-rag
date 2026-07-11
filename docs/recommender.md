@@ -3,7 +3,7 @@
 This is the query-time half of the project: a multi-retriever RAG pipeline
 that turns a natural-language request into ranked movie recommendations drawn
 only from the user's own Plex library. It's exposed two ways — a CLI chat loop
-and a Streamlit web UI — both of which wire up the same underlying pieces.
+and a NiceGUI web UI — both of which wire up the same underlying pieces.
 Both entry points read **exclusively from the Qdrant collection**
 `plex-ingest` owns, connecting via `QDRANT_URL` (server mode) per
 [docs/vector-store-contract.md](vector-store-contract.md) — there is no
@@ -20,11 +20,10 @@ tries to create or repair the collection itself.
 - **CLI** — `plex-rag chat [--no-spoilers] [--verbose]`
   (`app/cli.py:chat` → `app/rag.py:main`). Runs a blocking `input()` loop in
   the terminal.
-- **Web UI** — `streamlit run streamlit_app/main.py`. `streamlit_app/init.py`
-  is a thin `@st.cache_resource`-cached wrapper (cached per `spoiler_free`
-  toggle value) around the same builder the CLI uses; `streamlit_app/main.py`
-  drives the chat UI and session state, `streamlit_app/components.py` renders
-  each response.
+- **Web UI** — `python nicegui_app/main.py`. `nicegui_app/service_cache.py`
+  is a thin module-level cache (keyed by `spoiler_free` toggle value) around
+  the same builder the CLI uses; `nicegui_app/main.py` drives the chat UI and
+  per-tab state, `nicegui_app/components.py` renders each response.
 
 Both entry points call `build_recommender_service` (`app/bootstrap.py`) — the
 single composition root that constructs the Gemini clients, connects to
@@ -38,8 +37,8 @@ poster/rating display) are both derived from the same
 `MediaItemLookup` port — no local database read anywhere in this path. The
 CLI passes `include_knowledge_retriever=True` to also wire in
 `LLMKnowledgeRetriever` (which needs the full movie title list) since
-terminal usage isn't latency-sensitive in the same way; the Streamlit UI
-leaves it off (the default) for a snappier browser experience.
+terminal usage isn't latency-sensitive in the same way; the web UI leaves it
+off (the default) for a snappier browser experience.
 
 ## Architecture (`app/domain/`, `app/adapters/`, `app/services/`)
 
@@ -113,25 +112,35 @@ methods:
 
 - `chat(question, verbose=False)` → str — used by the CLI.
 - `chat_with_items(question, media_repo)` → `(str, list[MediaItem])` — used by
-  Streamlit; resolves the recommender's returned `imdb_ids` back to full
+  the web UI; resolves the recommender's returned `imdb_ids` back to full
   `MediaItem`s (for posters/ratings) via `media_repo.get_by_id`, where
   `media_repo` is a `QdrantMediaItems` instance (any `MediaItemLookup` works).
 
-`reset_history()` clears history — wired to the Streamlit "New conversation"
+`reset_history()` clears history — wired to the web UI's "New conversation"
 button.
 
-## Streamlit UI specifics (`streamlit_app/`)
+## NiceGUI UI specifics (`nicegui_app/`)
 
-- `init.py:build_service` is `@st.cache_resource`-cached per `spoiler_free`
-  value, so toggling spoiler-free mode swaps to a distinct cached pipeline
-  instance (and distinct chat history) rather than mutating one in place.
+- `service_cache.py:get_service` is a module-level, process-lifetime cache
+  keyed by `spoiler_free`, the direct equivalent of the previous Streamlit
+  `@st.cache_resource`-per-argument behavior. **This means every browser tab
+  sharing a `spoiler_free` value gets the same `ConversationalRecommendationService`
+  instance, including its chat history** — one tab's turn becomes context for
+  another tab's next answer, and "New conversation" in any tab clears history
+  for every tab sharing that setting (though each tab's *displayed* transcript,
+  stored in `app.storage.tab`, stays independent). This is a pre-existing
+  behavior carried over unchanged from the Streamlit implementation, not a bug.
 - `components.py:render_recommendations` splits the generator's markdown
-  response into numbered sections via regex (`_parse_sections`), peeling off
-  any trailing "Summary" / "Note" blocks, then pairs each numbered section
-  **positionally** with the `MediaItem` list returned alongside the answer
-  (not by title text-matching — see the "fix wrong movie posters" commit for
-  why: title-matching was fragile against sequels/reboots with shared titles).
-  Each pairing renders as a two-column poster + reasoning card.
+  response into numbered sections via regex
+  (`app/formatting/sections.py:parse_sections`, framework-agnostic and shared
+  with any future front end), peeling off any trailing "Summary" / "Note"
+  blocks, then pairs each numbered section **positionally** with the
+  `MediaItem` list returned alongside the answer (not by title text-matching —
+  see the "fix wrong movie posters" commit for why: title-matching was fragile
+  against sequels/reboots with shared titles). Each pairing renders as a
+  poster + reasoning card built from `ui.row`/`ui.column` rather than any
+  built-in chat-bubble widget, to keep the flat, borderless look of the
+  original UI (see `nicegui_app/styles.py` for the full rationale).
 
 ## Configuration
 

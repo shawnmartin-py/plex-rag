@@ -1,8 +1,22 @@
+import enum
 from typing import Any
 
 from langchain_core.documents import Document
 
-from app.models.media_item import MediaItem
+from app.models.media_item import MediaItem, StreamingSource, VideoResolution
+
+
+def _enum_or_none[E: enum.Enum](enum_cls: type[E], raw: Any) -> E | None:
+    """Best-effort parse of an optional contract field into its local enum. Unlike
+    plex-ingest's fail-fast parsing at write time, a value this side doesn't
+    recognize (e.g. a stale reader against a newer contract) degrades to no badge
+    rather than breaking the whole chat response — see docs/vector-store-contract.md."""
+    if not isinstance(raw, str):
+        return None
+    for member in enum_cls:
+        if member.value == raw:
+            return member
+    return None
 
 
 def _media_item_from_metadata(metadata: dict[str, Any]) -> MediaItem:
@@ -16,6 +30,10 @@ def _media_item_from_metadata(metadata: dict[str, Any]) -> MediaItem:
         content_rating=metadata["content_rating"],
         genres=genres.split(", ") if genres else [],
         thumb_url=metadata.get("thumb_url"),
+        video_resolution=_enum_or_none(
+            VideoResolution, metadata.get("video_resolution")
+        ),
+        source_platform=_enum_or_none(StreamingSource, metadata.get("source_platform")),
     )
 
 

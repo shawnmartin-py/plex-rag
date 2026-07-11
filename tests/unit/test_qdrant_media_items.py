@@ -2,6 +2,7 @@ from typing import Any
 
 from langchain_core.documents import Document
 
+from app.models.media_item import StreamingSource, VideoResolution
 from app.repositories.qdrant_media_items import QdrantMediaItems
 
 
@@ -56,6 +57,39 @@ def test_get_by_id_handles_empty_genres_string() -> None:
     item = repo.get_by_id("tt6751668")
     assert item is not None
     assert item.genres == []
+
+
+def test_get_by_id_parses_video_resolution() -> None:
+    repo = QdrantMediaItems([make_synopsis_doc(video_resolution="4k")])
+    item = repo.get_by_id("tt6751668")
+    assert item is not None
+    assert item.video_resolution is VideoResolution.R4K
+    assert item.source_platform is None
+
+
+def test_get_by_id_parses_source_platform() -> None:
+    repo = QdrantMediaItems([make_synopsis_doc(source_platform="Netflix")])
+    item = repo.get_by_id("tt6751668")
+    assert item is not None
+    assert item.source_platform is StreamingSource.NETFLIX
+    assert item.video_resolution is None
+
+
+def test_get_by_id_defaults_video_resolution_and_source_platform_to_none() -> None:
+    repo = QdrantMediaItems([make_synopsis_doc()])
+    item = repo.get_by_id("tt6751668")
+    assert item is not None
+    assert item.video_resolution is None
+    assert item.source_platform is None
+
+
+def test_get_by_id_treats_unrecognized_video_resolution_as_none() -> None:
+    """A stale reader against a newer contract shouldn't break the chat response —
+    see _enum_or_none's docstring in qdrant_media_items.py."""
+    repo = QdrantMediaItems([make_synopsis_doc(video_resolution="8k")])
+    item = repo.get_by_id("tt6751668")
+    assert item is not None
+    assert item.video_resolution is None
 
 
 def test_multiple_documents_are_all_indexed() -> None:
