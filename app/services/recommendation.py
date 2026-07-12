@@ -3,13 +3,8 @@ from dataclasses import dataclass, field
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
-from app.domain.ports import MediaItemLookup
-from app.domain.recommender import (
-    CoverageReport,
-    MovieRecommender,
-    SectionReady,
-    TextDelta,
-)
+from app.domain.ports import MediaItemLookup, SectionReady, TextDelta
+from app.domain.recommender import CoverageReport, MovieRecommender
 from app.models.media_item import MediaItem
 
 

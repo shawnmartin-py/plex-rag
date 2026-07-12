@@ -1,3 +1,4 @@
+from collections.abc import AsyncIterator
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
@@ -9,6 +10,12 @@ from app.adapters.generators import (
     GeminiConversationTitler,
     GeminiQueryRewriter,
     GeminiRecommendationGenerator,
+)
+from app.domain.ports import (
+    RecommendationCard,
+    RecommendationResponse,
+    SectionReady,
+    TextDelta,
 )
 
 
@@ -32,7 +39,15 @@ def generator() -> tuple[GeminiRecommendationGenerator, MagicMock]:
     instance = GeminiRecommendationGenerator(MagicMock())
     mock_chain = MagicMock()
     instance._chain = mock_chain
-    mock_chain.ainvoke = AsyncMock(return_value="here are my recommendations")
+    mock_chain.ainvoke = AsyncMock(
+        return_value=RecommendationResponse(
+            cards=[
+                RecommendationCard(
+                    imdb_id="tt001", body_md="here are my recommendations"
+                )
+            ]
+        )
+    )
     return instance, mock_chain
 
 
@@ -41,7 +56,15 @@ def spoiler_free_generator() -> tuple[GeminiRecommendationGenerator, MagicMock]:
     instance = GeminiRecommendationGenerator(MagicMock(), spoiler_free=True)
     mock_chain = MagicMock()
     instance._chain = mock_chain
-    mock_chain.ainvoke = AsyncMock(return_value="here are my recommendations")
+    mock_chain.ainvoke = AsyncMock(
+        return_value=RecommendationResponse(
+            cards=[
+                RecommendationCard(
+                    imdb_id="tt001", body_md="here are my recommendations"
+                )
+            ]
+        )
+    )
     return instance, mock_chain
 
 
@@ -52,6 +75,18 @@ def titler() -> tuple[GeminiConversationTitler, MagicMock]:
     instance._chain = mock_chain
     mock_chain.ainvoke = AsyncMock(return_value="  Heist thrillers with a twist  ")
     return instance, mock_chain
+
+
+def _make_streaming_chain(partials: list[RecommendationResponse]) -> MagicMock:
+    async def _astream(
+        *_args: Any, **_kwargs: Any
+    ) -> AsyncIterator[RecommendationResponse]:
+        for partial in partials:
+            yield partial
+
+    mock_chain = MagicMock()
+    mock_chain.astream = _astream
+    return mock_chain
 
 
 # --- GeminiQueryRewriter ---
@@ -93,15 +128,16 @@ async def test_rewriter_passes_empty_history(
     assert call_args["chat_history"] == []
 
 
-# --- GeminiRecommendationGenerator ---
+# --- GeminiRecommendationGenerator.generate ---
 
 
-async def test_generator_returns_answer(
+async def test_generator_returns_structured_response(
     generator: tuple[GeminiRecommendationGenerator, MagicMock],
 ) -> None:
     instance, _ = generator
     result = await instance.generate("recommend a thriller", "some context", history=[])
-    assert result == "here are my recommendations"
+    assert result.cards[0].imdb_id == "tt001"
+    assert result.cards[0].body_md == "here are my recommendations"
 
 
 async def test_generator_passes_question(
@@ -164,7 +200,7 @@ async def test_spoiler_free_generator_returns_answer(
 ) -> None:
     instance, _ = spoiler_free_generator
     result = await instance.generate("recommend a thriller", "some context", history=[])
-    assert result == "here are my recommendations"
+    assert result.cards[0].body_md == "here are my recommendations"
 
 
 async def test_spoiler_free_generator_passes_question(
@@ -183,6 +219,128 @@ async def test_spoiler_free_generator_passes_context(
     await instance.generate("question", "Title: Parasite", history=[])
     call_args = mock_chain.ainvoke.call_args[0][0]
     assert call_args["context"] == "Title: Parasite"
+
+
+# --- GeminiRecommendationGenerator.stream (boundary detection) ---
+#
+# Exercises the state machine described in
+# docs/plan-structured-recommendation-output.md §5/§8.2 against synthetic
+# sequences of partial RecommendationResponse objects — the same shape Gemini
+# actually streams (confirmed against the live API; see repo root's
+# test_example.py) — without depending on the LLM layer, per §7/§8.4 of that
+# plan.
+
+
+async def test_stream_yields_nothing_until_a_card_is_superseded() -> None:
+    instance = GeminiRecommendationGenerator(MagicMock())
+    instance._chain = _make_streaming_chain(
+        [
+            RecommendationResponse(
+                cards=[RecommendationCard(imdb_id="tt001", body_md="Gre")]
+            ),
+            RecommendationResponse(
+                cards=[RecommendationCard(imdb_id="tt001", body_md="Great pick.")]
+            ),
+        ]
+    )
+    events = [e async for e in instance.stream("q", "context", history=[])]
+    # A single card never gets superseded mid-stream — it only finalizes
+    # once the stream ends.
+    assert events == [SectionReady(imdb_id="tt001", body_md="Great pick.")]
+
+
+async def test_stream_finalizes_a_card_once_the_list_grows_past_it() -> None:
+    instance = GeminiRecommendationGenerator(MagicMock())
+    instance._chain = _make_streaming_chain(
+        [
+            RecommendationResponse(
+                cards=[RecommendationCard(imdb_id="tt001", body_md="Great pick.")]
+            ),
+            RecommendationResponse(
+                cards=[
+                    RecommendationCard(imdb_id="tt001", body_md="Great pick."),
+                    RecommendationCard(imdb_id="tt002", body_md="Also"),
+                ]
+            ),
+            RecommendationResponse(
+                cards=[
+                    RecommendationCard(imdb_id="tt001", body_md="Great pick."),
+                    RecommendationCard(imdb_id="tt002", body_md="Also great."),
+                ]
+            ),
+        ]
+    )
+    events = [e async for e in instance.stream("q", "context", history=[])]
+    assert events == [
+        SectionReady(imdb_id="tt001", body_md="Great pick."),
+        SectionReady(imdb_id="tt002", body_md="Also great."),
+    ]
+
+
+async def test_stream_flushes_intro_once_cards_becomes_non_empty() -> None:
+    instance = GeminiRecommendationGenerator(MagicMock())
+    instance._chain = _make_streaming_chain(
+        [
+            RecommendationResponse(intro="Here are some picks:"),
+            RecommendationResponse(
+                intro="Here are some picks:",
+                cards=[RecommendationCard(imdb_id="tt001", body_md="Great pick.")],
+            ),
+        ]
+    )
+    events = [e async for e in instance.stream("q", "context", history=[])]
+    assert events == [
+        TextDelta(text="Here are some picks:"),
+        SectionReady(imdb_id="tt001", body_md="Great pick."),
+    ]
+
+
+async def test_stream_flushes_closing_note_after_the_last_card() -> None:
+    instance = GeminiRecommendationGenerator(MagicMock())
+    instance._chain = _make_streaming_chain(
+        [
+            RecommendationResponse(
+                cards=[RecommendationCard(imdb_id="tt001", body_md="Great pick.")]
+            ),
+            RecommendationResponse(
+                cards=[RecommendationCard(imdb_id="tt001", body_md="Great pick.")],
+                closing_note="Enjoy!",
+            ),
+        ]
+    )
+    events = [e async for e in instance.stream("q", "context", history=[])]
+    assert events == [
+        SectionReady(imdb_id="tt001", body_md="Great pick."),
+        TextDelta(text="Enjoy!"),
+    ]
+
+
+async def test_stream_with_zero_cards_flushes_only_intro() -> None:
+    instance = GeminiRecommendationGenerator(MagicMock())
+    instance._chain = _make_streaming_chain(
+        [
+            RecommendationResponse(intro="Nothing"),
+            RecommendationResponse(intro="Nothing fits that request."),
+        ]
+    )
+    events = [e async for e in instance.stream("q", "context", history=[])]
+    assert events == [TextDelta(text="Nothing fits that request.")]
+
+
+async def test_stream_with_zero_cards_flushes_closing_note() -> None:
+    instance = GeminiRecommendationGenerator(MagicMock())
+    instance._chain = _make_streaming_chain(
+        [RecommendationResponse(closing_note="Nothing fits that request.")]
+    )
+    events = [e async for e in instance.stream("q", "context", history=[])]
+    assert events == [TextDelta(text="Nothing fits that request.")]
+
+
+async def test_stream_yields_nothing_for_empty_stream() -> None:
+    instance = GeminiRecommendationGenerator(MagicMock())
+    instance._chain = _make_streaming_chain([])
+    events = [e async for e in instance.stream("q", "context", history=[])]
+    assert events == []
 
 
 # --- GeminiConversationTitler ---

@@ -5,15 +5,21 @@ import pytest
 from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
-from app.domain.ports import CandidateRetriever, QueryRewriter, RecommendationGenerator
+from app.domain.ports import (
+    CandidateRetriever,
+    QueryRewriter,
+    RecommendationCard,
+    RecommendationGenerator,
+    RecommendationResponse,
+    SectionReady,
+    StreamEvent,
+    TextDelta,
+)
 from app.domain.recommender import (
     MovieRecommender,
-    SectionReady,
-    TextDelta,
-    _find_mentioned_ids,
+    _format_card_heading,
     _format_grouped,
     _group_docs,
-    _strip_markers,
 )
 
 _R = "retriever"  # generic retriever name for tests
@@ -174,57 +180,17 @@ def test_format_grouped_includes_imdb_id_in_header() -> None:
     assert "tt001" in result
 
 
-# --- _find_mentioned_ids / _strip_markers ---
+# --- _format_card_heading ---
 
 
-def test_find_mentioned_ids_prefers_markers_over_title_search() -> None:
-    grouped = {
-        "tt001": [make_doc("tt001", "Parasite")],
-        "tt002": [make_doc("tt002", "Oldboy")],
-    }
-    response = (
-        "1. **Parasite** (2019)\n<!-- imdb:tt002 -->\nActually about Oldboy's vibe."
-    )
-    # Marker says tt002, title text says Parasite — marker wins.
-    assert _find_mentioned_ids(grouped, response) == ["tt002"]
-
-
-def test_find_mentioned_ids_orders_by_marker_appearance() -> None:
-    grouped = {
-        "tt001": [make_doc("tt001", "Parasite")],
-        "tt002": [make_doc("tt002", "Oldboy")],
-    }
-    response = "1. Oldboy\n<!-- imdb:tt002 -->\n2. Parasite\n<!-- imdb:tt001 -->"
-    assert _find_mentioned_ids(grouped, response) == ["tt002", "tt001"]
-
-
-def test_find_mentioned_ids_dedupes_repeated_markers() -> None:
+def test_format_card_heading_includes_index_title_year() -> None:
     grouped = {"tt001": [make_doc("tt001", "Parasite")]}
-    response = "<!-- imdb:tt001 --> ... <!-- imdb:tt001 -->"
-    assert _find_mentioned_ids(grouped, response) == ["tt001"]
+    assert _format_card_heading(1, "tt001", grouped) == "1. **Parasite** (2020)"
 
 
-def test_find_mentioned_ids_ignores_marker_for_unknown_film() -> None:
+def test_format_card_heading_uses_given_index() -> None:
     grouped = {"tt001": [make_doc("tt001", "Parasite")]}
-    response = "<!-- imdb:tt999 -->"
-    # Unknown id falls back to title search, which finds nothing either.
-    assert _find_mentioned_ids(grouped, response) == []
-
-
-def test_find_mentioned_ids_falls_back_to_title_search_without_markers() -> None:
-    grouped = {"tt001": [make_doc("tt001", "Parasite")]}
-    response = "Parasite is a great pick."
-    assert _find_mentioned_ids(grouped, response) == ["tt001"]
-
-
-def test_strip_markers_removes_marker_lines() -> None:
-    response = "1. **Parasite** (2019)\n<!-- imdb:tt001 -->\nGreat film."
-    assert "imdb:" not in _strip_markers(response)
-    assert "Great film." in _strip_markers(response)
-
-
-def test_strip_markers_leaves_text_without_markers_unchanged() -> None:
-    assert _strip_markers("no markers here") == "no markers here"
+    assert _format_card_heading(3, "tt001", grouped).startswith("3.")
 
 
 # --- MovieRecommender ---
@@ -248,32 +214,44 @@ class StubRewriter(QueryRewriter):
 class StubGenerator(RecommendationGenerator):
     async def generate(
         self, question: str, context: str, history: list[BaseMessage]
-    ) -> str:
-        return f"answer for: {question}"
+    ) -> RecommendationResponse:
+        return RecommendationResponse(
+            cards=[
+                RecommendationCard(imdb_id="tt001", body_md=f"answer for: {question}")
+            ]
+        )
 
     async def stream(
         self, question: str, context: str, history: list[BaseMessage]
-    ) -> AsyncIterator[str]:
-        yield f"answer for: {question}"
+    ) -> AsyncIterator[StreamEvent]:
+        yield SectionReady(imdb_id="tt001", body_md=f"answer for: {question}")
 
 
-class ChunkedStubGenerator(RecommendationGenerator):
-    """Streams pre-set chunks, letting tests control exactly where a marker
-    falls across chunk boundaries."""
+class EventStubGenerator(RecommendationGenerator):
+    """Streams a pre-set sequence of already-decided events. Boundary
+    detection (deciding when a card is "done") is now the real generator's
+    job — see GeminiRecommendationGenerator.stream, covered separately in
+    tests/integration/test_generators.py — so MovieRecommender only needs to
+    be tested against events it might receive, not against raw text/JSON."""
 
-    def __init__(self, chunks: list[str]) -> None:
-        self._chunks = chunks
+    def __init__(
+        self,
+        events: list[StreamEvent],
+        result: RecommendationResponse | None = None,
+    ) -> None:
+        self._events = events
+        self._result = result if result is not None else RecommendationResponse()
 
     async def generate(
         self, question: str, context: str, history: list[BaseMessage]
-    ) -> str:
-        return "".join(self._chunks)
+    ) -> RecommendationResponse:
+        return self._result
 
     async def stream(
         self, question: str, context: str, history: list[BaseMessage]
-    ) -> AsyncIterator[str]:
-        for chunk in self._chunks:
-            yield chunk
+    ) -> AsyncIterator[StreamEvent]:
+        for event in self._events:
+            yield event
 
 
 @pytest.fixture
@@ -293,7 +271,7 @@ async def test_recommend_with_no_history_skips_rewriter(single_doc: Document) ->
 async def test_recommend_with_history_calls_rewriter(single_doc: Document) -> None:
     rewriter = StubRewriter()
     generator = MagicMock(spec=RecommendationGenerator)
-    generator.generate.return_value = "answer"
+    generator.generate.return_value = RecommendationResponse()
     history = [HumanMessage(content="hi"), AIMessage(content="hello")]
     recommender = MovieRecommender([StubRetriever([single_doc])], generator, rewriter)
     await recommender.recommend("something slower", history=history)
@@ -308,7 +286,7 @@ async def test_recommend_merges_multiple_retrievers() -> None:
     doc_dup = make_doc("tt001", "Parasite")  # same key as doc_a
 
     generator = MagicMock(spec=RecommendationGenerator)
-    generator.generate.return_value = "answer"
+    generator.generate.return_value = RecommendationResponse()
     recommender = MovieRecommender(
         retrievers=[StubRetriever([doc_a]), StubRetriever([doc_b, doc_dup])],
         generator=generator,
@@ -326,7 +304,7 @@ async def test_recommend_all_sections_for_same_movie_reach_generator() -> None:
     meaning = make_doc("tt001", "Parasite", "enriched", "meaning")
 
     generator = MagicMock(spec=RecommendationGenerator)
-    generator.generate.return_value = "answer"
+    generator.generate.return_value = RecommendationResponse()
     recommender = MovieRecommender(
         retrievers=[StubRetriever([synopsis, craft, meaning])],
         generator=generator,
@@ -343,7 +321,7 @@ async def test_recommend_passes_original_question_to_generator(
     single_doc: Document,
 ) -> None:
     generator = MagicMock(spec=RecommendationGenerator)
-    generator.generate.return_value = "answer"
+    generator.generate.return_value = RecommendationResponse()
     recommender = MovieRecommender(
         [StubRetriever([single_doc])], generator, StubRewriter()
     )
@@ -352,38 +330,56 @@ async def test_recommend_passes_original_question_to_generator(
     assert question == "my question"
 
 
-async def test_recommend_returns_generator_output(single_doc: Document) -> None:
+async def test_recommend_returns_answer_built_from_cards(single_doc: Document) -> None:
     generator = MagicMock(spec=RecommendationGenerator)
-    generator.generate.return_value = "the final answer"
-    recommender = MovieRecommender(
-        [StubRetriever([single_doc])], generator, StubRewriter()
-    )
-    answer, _, _ = await recommender.recommend("question", history=[])
-    assert answer == "the final answer"
-
-
-async def test_recommend_strips_markers_from_returned_answer(
-    single_doc: Document,
-) -> None:
-    generator = MagicMock(spec=RecommendationGenerator)
-    generator.generate.return_value = (
-        "1. **Parasite** (2019)\n<!-- imdb:tt001 -->\nGreat pick."
+    generator.generate.return_value = RecommendationResponse(
+        intro="Here's a pick:",
+        cards=[RecommendationCard(imdb_id="tt001", body_md="Great film.")],
     )
     recommender = MovieRecommender(
         [StubRetriever([single_doc])], generator, StubRewriter()
     )
     answer, mentioned_ids, _ = await recommender.recommend("question", history=[])
-    assert "imdb:" not in answer
+    assert "Here's a pick:" in answer
+    assert "1. **Parasite** (2020)" in answer
+    assert "Great film." in answer
     assert mentioned_ids == ["tt001"]
 
 
-async def test_recommend_stream_yields_section_ready_at_stream_end(
+async def test_recommend_drops_hallucinated_imdb_id(single_doc: Document) -> None:
+    generator = MagicMock(spec=RecommendationGenerator)
+    generator.generate.return_value = RecommendationResponse(
+        cards=[
+            RecommendationCard(imdb_id="tt001", body_md="Real pick."),
+            RecommendationCard(imdb_id="tt999", body_md="Invented film."),
+        ]
+    )
+    recommender = MovieRecommender(
+        [StubRetriever([single_doc])], generator, StubRewriter()
+    )
+    answer, mentioned_ids, _ = await recommender.recommend("question", history=[])
+    assert mentioned_ids == ["tt001"]
+    assert "Invented film." not in answer
+
+
+async def test_recommend_uses_closing_note_when_nothing_fits(
     single_doc: Document,
 ) -> None:
-    # A single, never-followed-by-another-heading section only closes once
-    # the stream itself ends.
-    generator = ChunkedStubGenerator(
-        ["1. **Parasite** (2019)\n<!-- imdb:tt001 -->\nGreat pick."]
+    generator = MagicMock(spec=RecommendationGenerator)
+    generator.generate.return_value = RecommendationResponse(
+        closing_note="Nothing here really fits that request."
+    )
+    recommender = MovieRecommender(
+        [StubRetriever([single_doc])], generator, StubRewriter()
+    )
+    answer, mentioned_ids, _ = await recommender.recommend("question", history=[])
+    assert answer == "Nothing here really fits that request."
+    assert mentioned_ids == []
+
+
+async def test_recommend_stream_yields_section_ready(single_doc: Document) -> None:
+    generator = EventStubGenerator(
+        [SectionReady(imdb_id="tt001", body_md="Great pick.")]
     )
     recommender = MovieRecommender(
         [StubRetriever([single_doc])], generator, StubRewriter()
@@ -395,18 +391,17 @@ async def test_recommend_stream_yields_section_ready_at_stream_end(
     assert len(events) == 1
     assert isinstance(events[0], SectionReady)
     assert events[0].imdb_id == "tt001"
-    assert "imdb:" not in events[0].body_md
-    assert "Great pick." in events[0].body_md
+    assert events[0].body_md == "Great pick."
     assert streamed.imdb_ids == ["tt001"]
 
 
 async def test_recommend_stream_yields_multiple_sections_in_order() -> None:
     doc_a = make_doc("tt001", "Parasite")
     doc_b = make_doc("tt002", "Oldboy")
-    generator = ChunkedStubGenerator(
+    generator = EventStubGenerator(
         [
-            "1. **Parasite** (2019)\n<!-- imdb:tt001 -->\nGreat pick.\n\n",
-            "2. **Oldboy** (2003)\n<!-- imdb:tt002 -->\nAlso great.",
+            SectionReady(imdb_id="tt001", body_md="Great pick."),
+            SectionReady(imdb_id="tt002", body_md="Also great."),
         ]
     )
     recommender = MovieRecommender(
@@ -418,18 +413,16 @@ async def test_recommend_stream_yields_multiple_sections_in_order() -> None:
     sections = [e for e in events if isinstance(e, SectionReady)]
 
     assert [s.imdb_id for s in sections] == ["tt001", "tt002"]
-    assert "Great pick." in sections[0].body_md
-    assert "Also great." in sections[1].body_md
     assert streamed.imdb_ids == ["tt001", "tt002"]
 
 
-async def test_recommend_stream_yields_intro_prose_as_text_delta(
+async def test_recommend_stream_yields_intro_as_text_delta(
     single_doc: Document,
 ) -> None:
-    generator = ChunkedStubGenerator(
+    generator = EventStubGenerator(
         [
-            "Here are some picks:\n\n",
-            "1. **Parasite** (2019)\n<!-- imdb:tt001 -->\nGreat pick.",
+            TextDelta(text="Here are some picks:"),
+            SectionReady(imdb_id="tt001", body_md="Great pick."),
         ]
     )
     recommender = MovieRecommender(
@@ -440,15 +433,16 @@ async def test_recommend_stream_yields_intro_prose_as_text_delta(
     events = [event async for event in streamed.events]
 
     assert isinstance(events[0], TextDelta)
-    assert "Here are some picks" in events[0].text
+    assert events[0].text == "Here are some picks:"
     assert isinstance(events[1], SectionReady)
 
 
-async def test_recommend_stream_resolves_marker_split_across_chunks(
-    single_doc: Document,
-) -> None:
-    generator = ChunkedStubGenerator(
-        ["1. **Parasite** (2019)\n<!-- imdb:t", "t001 -->\nGreat pick."]
+async def test_recommend_stream_drops_hallucinated_card(single_doc: Document) -> None:
+    generator = EventStubGenerator(
+        [
+            SectionReady(imdb_id="tt999", body_md="Invented."),
+            SectionReady(imdb_id="tt001", body_md="Real pick."),
+        ]
     )
     recommender = MovieRecommender(
         [StubRetriever([single_doc])], generator, StubRewriter()
@@ -460,29 +454,14 @@ async def test_recommend_stream_resolves_marker_split_across_chunks(
     assert len(events) == 1
     assert isinstance(events[0], SectionReady)
     assert events[0].imdb_id == "tt001"
-    assert "imdb:" not in events[0].body_md
+    assert streamed.imdb_ids == ["tt001"]
 
 
-async def test_recommend_stream_falls_back_to_title_match_without_marker(
+async def test_recommend_stream_sets_answer_with_synthesized_heading(
     single_doc: Document,
 ) -> None:
-    generator = ChunkedStubGenerator(["1. Parasite is a great pick."])
-    recommender = MovieRecommender(
-        [StubRetriever([single_doc])], generator, StubRewriter()
-    )
-    streamed = await recommender.recommend_stream("question", history=[])
-
-    events = [event async for event in streamed.events]
-
-    assert isinstance(events[0], SectionReady)
-    assert events[0].imdb_id == "tt001"
-
-
-async def test_recommend_stream_sets_clean_answer_after_completion(
-    single_doc: Document,
-) -> None:
-    generator = ChunkedStubGenerator(
-        ["1. **Parasite** (2019)\n<!-- imdb:tt001 -->\nGreat pick."]
+    generator = EventStubGenerator(
+        [SectionReady(imdb_id="tt001", body_md="Great pick.")]
     )
     recommender = MovieRecommender(
         [StubRetriever([single_doc])], generator, StubRewriter()
@@ -492,13 +471,38 @@ async def test_recommend_stream_sets_clean_answer_after_completion(
     async for _event in streamed.events:
         pass
 
-    assert "imdb:" not in streamed.answer
+    assert "1. **Parasite** (2020)" in streamed.answer
     assert "Great pick." in streamed.answer
+
+
+async def test_recommend_stream_answer_includes_text_deltas_in_order(
+    single_doc: Document,
+) -> None:
+    generator = EventStubGenerator(
+        [
+            TextDelta(text="Intro text."),
+            SectionReady(imdb_id="tt001", body_md="Great pick."),
+            TextDelta(text="Closing text."),
+        ]
+    )
+    recommender = MovieRecommender(
+        [StubRetriever([single_doc])], generator, StubRewriter()
+    )
+    streamed = await recommender.recommend_stream("question", history=[])
+
+    async for _event in streamed.events:
+        pass
+
+    assert streamed.answer == (
+        "Intro text.\n\n1. **Parasite** (2020)\nGreat pick.\n\nClosing text."
+    )
 
 
 async def test_recommend_omits_coverage_report_by_default(single_doc: Document) -> None:
     generator = MagicMock(spec=RecommendationGenerator)
-    generator.generate.return_value = "the final answer"
+    generator.generate.return_value = RecommendationResponse(
+        cards=[RecommendationCard(imdb_id="tt001", body_md="Great pick.")]
+    )
     recommender = MovieRecommender(
         [StubRetriever([single_doc])], generator, StubRewriter()
     )
@@ -508,7 +512,9 @@ async def test_recommend_omits_coverage_report_by_default(single_doc: Document) 
 
 async def test_recommend_verbose_builds_coverage_report(single_doc: Document) -> None:
     generator = MagicMock(spec=RecommendationGenerator)
-    generator.generate.return_value = "Parasite is a great pick."
+    generator.generate.return_value = RecommendationResponse(
+        cards=[RecommendationCard(imdb_id="tt001", body_md="Great pick.")]
+    )
     recommender = MovieRecommender(
         [StubRetriever([single_doc])], generator, StubRewriter()
     )

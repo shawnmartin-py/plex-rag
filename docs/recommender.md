@@ -79,21 +79,25 @@ Per turn:
    (`=== Title (Year) ===` + its documents), synopsis first then
    craft/meaning/context in order, with **films shuffled** to avoid position
    bias in the generator's ranking.
-5. **Generate** — `RecommendationGenerator.generate` (Gemini) produces the
-   final prose response, constrained by prompt to only recommend films present
-   in the context.
-6. **Extract mentions** — `_find_mentioned_ids` finds which grouped films the
-   response actually recommends, in the order it recommends them, so the UI
-   can pair each numbered recommendation with its `MediaItem` (poster,
-   rating). Each context block in step 4 carries its film's `imdb_id`
-   (`[imdb_id: tt1234567]`), and the generator is instructed to echo it back
-   as a hidden `<!-- imdb:tt1234567 -->` comment right after each numbered
-   heading — `_find_mentioned_ids` reads that marker directly rather than
-   fuzzy-matching title text against the response (which used to misfire on
-   sequels/reboots sharing a title). Fuzzy title search remains as a fallback
-   for the rare case the model omits the marker. `_strip_markers` removes the
-   markers from the response before it's returned to callers, so neither the
-   CLI nor the web UI ever displays them.
+5. **Generate** — `RecommendationGenerator.generate` (Gemini, via
+   `with_structured_output`) produces a `RecommendationResponse`
+   (`app/domain/ports.py`): optional `intro`/`closing_note` prose plus a list
+   of `RecommendationCard(imdb_id, body_md)`. Each context block in step 4
+   carries its film's `imdb_id` (`[imdb_id: tt1234567]`), and the model is
+   instructed to copy it exactly into the matching card — a typed field
+   instead of a hidden `<!-- imdb:tt1234567 -->` comment the app used to
+   parse back out of free text (see
+   [plan-structured-recommendation-output.md](plan-structured-recommendation-output.md)
+   for why that changed). No parsing or fuzzy title-matching is needed to
+   know which film a card is about.
+6. **Filter and build the answer** — `MovieRecommender` drops any card whose
+   `imdb_id` isn't actually one of the grouped candidates (the model
+   hallucinated it rather than copying from context — same shape as
+   `LLMKnowledgeRetriever`'s title filter), then synthesizes a numbered
+   heading (`N. **Title** (Year)`) for each surviving card from `grouped`'s
+   own metadata to build the plain-text `answer` string used by the CLI and
+   conversation history. The web UI never sees these headings — it renders
+   title/year from the matched `MediaItem` and only displays `body_md`.
 
 ### Retrievers (`app/adapters/retrievers.py`)
 
@@ -115,12 +119,18 @@ All vector retrievers filter by `metadata.embedding_type` via Qdrant
 
 - `GeminiQueryRewriter` — single-turn LLM chain, system prompt instructs it to
   fold history into a standalone question, nothing else.
-- `GeminiRecommendationGenerator` — the main response chain. Two guideline
-  variants baked in at construction time: normal vs. `spoiler_free=True`
-  (forbids plot details / twists / outcomes, reasons only from genre/tone/
-  pacing/cast/style). Both variants share the same hard constraint: **never
-  recommend a film outside the provided context**, rank best-match-first, and
-  explicitly acknowledge weak matches rather than oversell them.
+- `GeminiRecommendationGenerator` — the main response chain, built on
+  `llm.with_structured_output(RecommendationResponse)` rather than plain text.
+  Two guideline variants baked in at construction time: normal vs.
+  `spoiler_free=True` (forbids plot details / twists / outcomes, reasons only
+  from genre/tone/pacing/cast/style). Both variants share the same hard
+  constraint: **never recommend a film outside the provided context**, rank
+  best-match-first, and explicitly acknowledge weak matches rather than
+  oversell them. `stream()` does its own boundary detection over Gemini's
+  growing partial `RecommendationResponse` objects — a card is only
+  guaranteed finished once the list has grown past it, since JSON generation
+  is append-only — turning that growth into discrete `SectionReady`/
+  `TextDelta` events (`app/domain/ports.py`) rather than raw text chunks.
 
 ### Conversation state (`app/services/recommendation.py`)
 
@@ -148,8 +158,9 @@ button.
   for every tab sharing that setting (though each tab's *displayed* transcript,
   stored in `app.storage.tab`, stays independent). This is a pre-existing
   behavior carried over unchanged from the Streamlit implementation, not a bug.
-- `components.py:render_recommendations` splits the generator's markdown
-  response into numbered sections via regex
+- `components.py:render_recommendations` splits the persisted `answer` string
+  (its numbered headings synthesized by `MovieRecommender`, not written by the
+  model — see step 6 above) into numbered sections via regex
   (`app/formatting/sections.py:parse_sections`, framework-agnostic and shared
   with any future front end), peeling off any trailing "Summary" / "Note"
   blocks, then pairs each numbered section **positionally** with the

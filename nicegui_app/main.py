@@ -8,8 +8,7 @@ from nicegui import Client, app, run, ui
 from nicegui.events import ValueChangeEventArguments
 
 from app.config import CONVERSATIONS_DB_PATH, NICEGUI_STORAGE_SECRET
-from app.domain.ports import ConversationTitler
-from app.domain.recommender import TextDelta
+from app.domain.ports import ConversationTitler, TextDelta
 from app.models.conversation import Conversation, ConversationMessage, MessageRole
 from app.models.media_item import MediaItem, StreamingSource, VideoResolution
 from app.repositories.conversation_store import ConversationStore

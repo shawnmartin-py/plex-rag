@@ -4,13 +4,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
-from app.domain.recommender import (
-    CoverageReport,
-    SectionReady,
-    StreamedAnswer,
-    StreamEvent,
-    TextDelta,
-)
+from app.domain.ports import SectionReady, StreamEvent, TextDelta
+from app.domain.recommender import CoverageReport, StreamedAnswer
 from app.models.media_item import MediaItem
 from app.services.recommendation import CardReady, ConversationalRecommendationService
 

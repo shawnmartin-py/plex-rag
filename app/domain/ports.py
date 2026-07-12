@@ -1,9 +1,11 @@
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from typing import Protocol
 
 from langchain_core.documents import Document
 from langchain_core.messages import BaseMessage
+from pydantic import BaseModel
 
 from app.models.media_item import MediaItem
 
@@ -28,18 +30,58 @@ class ConversationTitler(ABC):
     async def title(self, first_question: str, first_answer: str) -> str: ...
 
 
+class RecommendationCard(BaseModel):
+    """One recommended film. `imdb_id` is declared before `body_md` so it
+    resolves before the prose does when streamed via `with_structured_output`
+    (see docs/plan-structured-recommendation-output.md §3.3)."""
+
+    imdb_id: str
+    body_md: str
+
+
+class RecommendationResponse(BaseModel):
+    """The generator's full structured answer. `cards` carries no title/year
+    heading — the UI already renders those from the matched `MediaItem`, and
+    the CLI/persisted-history text synthesizes a heading from `grouped`
+    (`app/domain/recommender.py`) rather than having the model restate it."""
+
+    intro: str = ""
+    cards: list[RecommendationCard] = []
+    closing_note: str = ""
+
+
+@dataclass(frozen=True)
+class TextDelta:
+    """A finished block of plain prose — intro text or a trailing note."""
+
+    text: str
+
+
+@dataclass(frozen=True)
+class SectionReady:
+    """One finished recommendation card, ready to render as a UI card."""
+
+    imdb_id: str
+    body_md: str
+
+
+StreamEvent = TextDelta | SectionReady
+
+
 class RecommendationGenerator(ABC):
     @abstractmethod
     async def generate(
         self, question: str, context: str, history: list[BaseMessage]
-    ) -> str: ...
+    ) -> RecommendationResponse: ...
 
     @abstractmethod
     def stream(
         self, question: str, context: str, history: list[BaseMessage]
-    ) -> AsyncIterator[str]:
-        """Yield the answer as incremental text deltas rather than waiting for
-        the full response — the streaming counterpart to `generate`."""
+    ) -> AsyncIterator[StreamEvent]:
+        """Yield discrete events as the answer completes, rather than raw text
+        deltas — a `TextDelta` for a finished block of prose, a
+        `SectionReady` the moment one recommendation card's fields are fully
+        written. The streaming counterpart to `generate`."""
 
 
 class MediaItemLookup(Protocol):

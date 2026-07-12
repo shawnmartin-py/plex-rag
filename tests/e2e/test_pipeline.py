@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from langchain_core.messages import BaseMessage
 from langchain_qdrant import QdrantVectorStore
@@ -8,6 +10,7 @@ from app.adapters.retrievers import (
     LLMEnrichmentRetriever,
     LLMKnowledgeRetriever,
 )
+from app.domain.ports import RecommendationCard, RecommendationResponse
 from app.domain.recommender import MovieRecommender
 from app.services.recommendation import ConversationalRecommendationService
 from tests.e2e.conftest import TEST_DOCS, StubEmbeddings, StubLLM
@@ -21,9 +24,17 @@ HYDE_RESPONSE = (
     "A poor family infiltrates the home of a wealthy household, leading to "
     "class conflict."
 )
-KNOWLEDGE_RESPONSE = '["Parasite", "Oldboy"]'
-RECOMMENDATION_RESPONSE = (
-    "Based on your request, I recommend Parasite and Oldboy from your library."
+KNOWLEDGE_RESPONSE = '{"titles": ["Parasite", "Oldboy"]}'
+RECOMMENDATION_INTRO = "Based on your request, here are two picks from your library."
+RECOMMENDATION_RESPONSE = json.dumps(
+    {
+        "intro": RECOMMENDATION_INTRO,
+        "cards": [
+            {"imdb_id": "tt6751668", "body_md": "**Why it fits:** class themes."},
+            {"imdb_id": "tt0364569", "body_md": "**Why it fits:** dark thriller vibe."},
+        ],
+        "closing_note": "",
+    }
 )
 REWRITER_RESPONSE = (
     "Recommend a dark thriller with class themes, focusing on more recent films."
@@ -65,7 +76,9 @@ async def test_first_question_returns_generator_response(
     service: ConversationalRecommendationService,
 ) -> None:
     answer, _ = await service.chat("recommend a dark thriller")
-    assert answer == RECOMMENDATION_RESPONSE
+    assert RECOMMENDATION_INTRO in answer
+    assert "**Why it fits:** class themes." in answer
+    assert "**Why it fits:** dark thriller vibe." in answer
 
 
 async def test_follow_up_question_uses_rewriter(
@@ -74,7 +87,8 @@ async def test_follow_up_question_uses_rewriter(
     rewriter_llm = StubLLM(responses=[REWRITER_RESPONSE])
     hyde_llm = StubLLM(responses=[HYDE_RESPONSE])
     knowledge_llm = StubLLM(responses=[KNOWLEDGE_RESPONSE])
-    generator_llm = StubLLM(responses=[RECOMMENDATION_RESPONSE, "Second answer"])
+    second_response = json.dumps({"cards": [], "closing_note": "Second answer"})
+    generator_llm = StubLLM(responses=[RECOMMENDATION_RESPONSE, second_response])
 
     recommender = MovieRecommender(
         retrievers=[
@@ -109,7 +123,7 @@ async def test_knowledge_retriever_contributes_docs_to_context(
     # Use a knowledge LLM that returns a title only in doc_by_title, not in RAG results
     # Since all vectors are identical, RAG can return any doc — we just verify
     # the pipeline runs
-    knowledge_llm = StubLLM(responses=['["The Handmaiden"]'])
+    knowledge_llm = StubLLM(responses=['{"titles": ["The Handmaiden"]}'])
     hyde_llm = StubLLM(responses=[HYDE_RESPONSE])
 
     captured_contexts: list[str] = []
@@ -117,9 +131,11 @@ async def test_knowledge_retriever_contributes_docs_to_context(
     class CapturingGenerator(GeminiRecommendationGenerator):
         async def generate(
             self, question: str, context: str, history: list[BaseMessage]
-        ) -> str:
+        ) -> RecommendationResponse:
             captured_contexts.append(context)
-            return "answer"
+            return RecommendationResponse(
+                cards=[RecommendationCard(imdb_id="tt4016934", body_md="answer")]
+            )
 
     recommender = MovieRecommender(
         retrievers=[
