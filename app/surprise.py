@@ -29,6 +29,8 @@ def main() -> None:
             rating = f" — ★ {item.imdb_rating}" if item.imdb_rating else ""
             genres = f" ({', '.join(item.genres)})" if item.genres else ""
             print(f"  {item.title} ({item.year}){rating}{genres}")
+            if item.description:
+                print(f"    {item.description}")
         again = input("\nShow me more? [Enter/q] ").strip().lower()
         if again == "q":
             break

@@ -29,6 +29,7 @@ def _media_item_from_metadata(metadata: dict[str, Any]) -> MediaItem:
         imdb_rating=metadata["imdb_rating"],
         content_rating=metadata["content_rating"],
         genres=genres.split(", ") if genres else [],
+        description=metadata.get("description"),
         thumb_url=metadata.get("thumb_url"),
         video_resolution=_enum_or_none(
             VideoResolution, metadata.get("video_resolution")

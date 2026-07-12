@@ -53,6 +53,7 @@ def _item_to_dict(item: MediaItem) -> dict[str, Any]:
         "imdb_rating": item.imdb_rating,
         "content_rating": item.content_rating,
         "genres": item.genres,
+        "description": item.description,
         "thumb_url": item.thumb_url,
         # app.storage.tab persists via JSON, so enums are stored as their raw value
         # and rebuilt in _dict_to_item — MediaItem itself isn't JSON-serializable.
@@ -377,7 +378,7 @@ async def index(client: Client) -> None:
         with assistant_body:
             ui.markdown(answer).classes("plex-msg-prose")
             for i, item in enumerate(items):
-                render_movie_card(item, "", top_pick=(i == 0))
+                render_movie_card(item, item.description or "", top_pick=(i == 0))
 
         messages.append(
             {

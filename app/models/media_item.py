@@ -32,6 +32,7 @@ class MediaItem:
     imdb_rating: float
     content_rating: str
     genres: list[str]
+    description: str | None = None
     thumb_url: str | None = None
     video_resolution: VideoResolution | None = None
     source_platform: StreamingSource | None = None
