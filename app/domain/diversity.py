@@ -164,7 +164,7 @@ class DiversityRecommender:
         band_high_percentile: float = 0.90,
         pool_multiplier: int = 3,
         softmax_temperature: float = 0.15,
-        mmr_diversity_weight: float = 0.5,
+        mmr_diversity_weight: float = 0.6,
         min_imdb_rating: float | None = 5.5,
         outlier_wildcard_probability: float = 0.15,
         rng: random.Random | None = None,
