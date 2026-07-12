@@ -109,6 +109,14 @@ class ConversationStore:
             ).fetchall()
         return [_row_to_conversation(row) for row in rows]
 
+    def clear(self) -> int:
+        """Delete all stored conversations. Returns the number of rows removed."""
+        with duckdb.connect(self._db_path) as conn:
+            row = conn.execute("SELECT COUNT(*) FROM conversations").fetchone()
+            count = int(row[0]) if row else 0
+            conn.execute("DELETE FROM conversations")
+        return count
+
     def get(self, conversation_id: str) -> Conversation | None:
         with duckdb.connect(self._db_path) as conn:
             row = conn.execute(

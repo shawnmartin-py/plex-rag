@@ -27,3 +27,14 @@ def chat(
     from app.rag import main
 
     asyncio.run(main(spoiler_free=no_spoilers, verbose=verbose))
+
+
+@app.command()
+def clear_history() -> None:
+    """Wipe the web UI's recent-conversations history."""
+    from app.config import CONVERSATIONS_DB_PATH
+    from app.repositories.conversation_store import ConversationStore
+
+    store = ConversationStore(CONVERSATIONS_DB_PATH)
+    count = store.clear()
+    typer.echo(f"Cleared {count} conversation(s) from history.")
