@@ -89,6 +89,53 @@ three `enriched` points (one per section). Retrievers filter by
 `metadata.embedding_type` (and `metadata.section` where relevant) via
 Qdrant `Filter`/`FieldCondition`.
 
+## `watch_history` collection — implemented (2026-07-12)
+
+A second, separate collection populated by `plex-ingest`'s watch-history
+pipeline (see `plex-ingest`'s `docs/pipeline-design.md`, "Watch-history
+diversity-recommender pipeline") and read by `plex-rag`'s diversity
+recommender (see [docs/diversity-recommender.md](diversity-recommender.md)).
+Kept separate from `media_items` — different lifecycle (add-only, with the
+relevance window enforced at query time rather than by deleting old data)
+and a different source (watch history, not the unwatched catalog).
+
+- **Connection:** same Qdrant deployment and client as `media_items`, a
+  different collection name — new env var `QDRANT_WATCH_HISTORY_COLLECTION`
+  (default `watch_history`) on both sides, analogous to `QDRANT_COLLECTION`.
+- **Embedding model:** same as `media_items` — `gemini-embedding-001`, 3072
+  dimensions, cosine distance.
+- **Payload shape:** same `QdrantVectorStore` defaults
+  (`page_content` + `metadata`). Only one point type per `imdb_id` — no
+  `embedding_type`/`section` split needed, unlike `media_items`.
+
+### `metadata` fields
+
+| Field | Type | Notes |
+|---|---|---|
+| `imdb_id` | string | Primary key, same meaning as in `media_items` |
+| `title` | string | |
+| `year` | int | |
+| `imdb_rating` | float | Extracted from Plex's `Rating` list, filtered to the entry whose `image` starts with `imdb://` — same extraction `media_items` already does |
+| `genres` | string | comma-joined, same convention as `media_items` |
+| `last_viewed_at` | string | ISO 8601 (`datetime.isoformat()`), naive/no tzinfo — matches Plex's own local-server timestamps. The most recent `viewedAt` for this `imdb_id`; Plex history can contain repeat watches, this collection dedupes to one point per `imdb_id`, keeping the max |
+
+### `page_content`
+
+```
+Title: {title}
+Year: {year}
+IMDb Rating: {imdb_rating}
+Genres: {genres}
+Synopsis: {summary}
+```
+
+Deliberately the same shape as `media_items`' `synopsis` `page_content` —
+see `plex-ingest`'s `docs/pipeline-design.md` for why a short Plex-provided
+summary here (rather than a full scraped synopsis) tested as sufficient
+embedding input. `summary` itself is not stored as a separate metadata
+field, only embedded in `page_content` — consistent with how `media_items`
+stores full synopsis text only in `page_content`, not `metadata`.
+
 ## Non-contract items (intentionally NOT synced)
 
 - **LLM model for generation** (`gemini-3.1-flash-lite` today) — used for

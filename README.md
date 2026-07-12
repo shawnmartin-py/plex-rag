@@ -43,6 +43,17 @@ Ask questions like "what should I watch tonight?" or "something like Parasite bu
 
 The strict constraint throughout is that it only recommends movies from your library — the generator prompt explicitly forbids suggestions outside the retrieved candidate set.
 
+### Surprise me (diversity mode)
+
+A second, query-free recommendation mode: instead of matching what you ask for, it deliberately recommends unwatched movies that are semantically *farthest* from what you've recently watched — a "mix it up" alternative to the similarity-driven chat flow above (e.g. following a heavy thriller with something light). Available as `plex-rag surprise` on the CLI and the "Surprise me" sidebar button in the web UI.
+
+- **Recency-weighted aversion vector** — recently watched movies are embedded and averaged into a single vector, with an exponential half-life (most recent watch dominates, nothing is hard-cut except a rolling window enforced upstream).
+- **Distance-band selection, not pure argmax** — candidates are ranked by distance from that vector and sampled from the 70th–90th percentile band, since the single furthest movie is as likely to be a vector-space outlier as a genuinely good contrasting pick.
+- **Outlier wildcard** — each request has a small independent chance of pulling in one pick from beyond that band anyway, so titles that would otherwise never surface (stable, extreme outliers relative to your library) still get an occasional, deliberately rare shot.
+- **MMR + softmax sampling** — results are diversified against each other (not just against your history) and sampled with temperature-scaled randomness, so repeat requests don't return the same movies.
+
+This mode depends on a separate `watch_history` Qdrant collection populated by `plex-ingest`'s own pipeline (see [Data source](#data-source)); it's optional and disables itself gracefully with an explanatory message if that collection hasn't been populated yet. See [docs/diversity-recommender.md](docs/diversity-recommender.md) for the full design.
+
 ### Web UI
 
 A NiceGUI browser interface for the recommendation chat. Runs locally and serves the app at `http://localhost:8080`.
@@ -53,6 +64,7 @@ A NiceGUI browser interface for the recommendation chat. Runs locally and serves
 - **Movie cards** — each recommendation renders as a poster image alongside the reasoning, with IMDb rating below
 - **Spoiler-free toggle** — switch modes without leaving the browser
 - **New conversation** — reset chat history in one click
+- **Surprise me** — sidebar button for diversity mode (see above); renders as its own chat turn with movie cards, no generated commentary
 
 ## Data source
 
@@ -63,6 +75,11 @@ generation, and every write to the vector store. `plex-rag` connects to the
 Qdrant collection `plex-ingest` populates, read-only, over the network. See
 [docs/vector-store-contract.md](docs/vector-store-contract.md) for the data
 contract between the two repos.
+
+Surprise-me/diversity mode reads from a second, separate collection,
+`watch_history`, also populated by a `plex-ingest` pipeline (from Plex watch
+history, not the library itself). It's genuinely optional — the main chat
+feature works fine without it.
 
 ## Setup
 
@@ -81,6 +98,7 @@ Create a `.env` file in the project root (or export these in your shell):
 | `GOOGLE_API_KEY` | Yes | Google Gemini API key — used for embeddings and generation |
 | `QDRANT_URL` | No | URL of the Qdrant server `plex-ingest` populates (default: `http://localhost:6333`) |
 | `QDRANT_COLLECTION` | No | Qdrant collection name (default: `media_items`) |
+| `QDRANT_WATCH_HISTORY_COLLECTION` | No | Qdrant collection for surprise-me/diversity mode (default: `watch_history`) — feature disables itself gracefully if this collection doesn't exist |
 | `NICEGUI_STORAGE_SECRET` | No | Encrypts the web UI's per-browser-tab storage (default: a fixed dev value — set a real value in production) |
 | `PYTHONPATH` | No | Set to the project root if running without `uv run` or the installed console scripts (`plex-rag`, `plex-rag-web`) |
 
@@ -115,6 +133,9 @@ make clear-history
 # Flags aren't exposed through make — call plex-rag directly for those
 plex-rag chat --no-spoilers  # spoiler-free mode
 plex-rag chat --verbose      # show retriever source coverage after each response (for debugging bias)
+
+# Surprise me: recommend something different from your recent watch history
+plex-rag surprise
 ```
 
 ## Development
@@ -133,33 +154,40 @@ make check              # pre-commit + test — the same gate CI runs
 
 ```
 app/
-├── cli.py                      # Typer CLI entrypoint
+├── cli.py                      # Typer CLI entrypoint (chat, surprise, clear-history)
 ├── rag.py                      # CLI chat entrypoint: input loop over build_recommender_service
-├── bootstrap.py                # build_recommender_service: shared composition root (CLI + NiceGUI)
+├── surprise.py                 # CLI surprise-me entrypoint: input loop over build_diversity_service
+├── bootstrap.py                # build_recommender_service / build_diversity_service: composition roots (CLI + NiceGUI)
 ├── config.py                   # env-driven settings
 ├── domain/
 │   ├── recommender.py          # MovieRecommender: orchestrates retrieve → generate
-│   └── ports.py                # Interfaces: CandidateRetriever, RecommendationGenerator, QueryRewriter, MediaItemLookup
+│   ├── diversity.py            # DiversityRecommender: aversion vector, distance band, MMR, softmax, outlier wildcard
+│   └── ports.py                # Interfaces: CandidateRetriever, RecommendationGenerator, QueryRewriter, MediaItemLookup, WatchHistoryLookup, CandidatePool
 ├── adapters/
 │   ├── retrievers.py           # DirectSynopsisRetriever, HyDEVectorRetriever, LLMKnowledgeRetriever, LLMEnrichmentRetriever
 │   └── generators.py           # GeminiRecommendationGenerator, GeminiQueryRewriter
 ├── services/
-│   └── recommendation.py       # ConversationalRecommendationService (manages chat history)
+│   ├── recommendation.py       # ConversationalRecommendationService (manages chat history)
+│   └── diversity_recommendation.py  # DiversityRecommendationService (session-level "don't repeat" state)
 ├── repositories/
 │   ├── qdrant_media_items.py   # QdrantMediaItems: MediaItem lookup sourced from Qdrant payloads
-│   └── vector_store.py         # read-only Qdrant connect + preflight checks
+│   ├── vector_store.py         # read-only Qdrant connect + preflight checks, synopsis/watch-history vector loaders
+│   ├── watch_history.py        # QdrantWatchHistory: in-memory WatchHistoryLookup
+│   └── candidate_pool.py       # QdrantCandidatePool: in-memory CandidatePool
 ├── formatting/
 │   └── sections.py             # parse_sections/split_trailing_notes: LLM response → per-film sections (framework-agnostic)
 └── models/
     └── media_item.py           # MediaItem dataclass (read-side shape)
 
 nicegui_app/
-├── main.py                     # NiceGUI entrypoint — layout, per-tab storage, chat loop, ui.run()
-├── service_cache.py            # get_service: cache around app.bootstrap.build_recommender_service, keyed by spoiler_free
+├── main.py                     # NiceGUI entrypoint — layout, per-tab storage, chat loop, surprise-me button, ui.run()
+├── service_cache.py            # get_service / get_diversity_service: caches around the two bootstrap composition roots
 ├── components.py                # render_recommendations/render_chat_row: build chat rows and per-film poster + text cards
 └── styles.py                   # dark theme CSS matching the original Streamlit look
 ```
 
 See [docs/recommender.md](docs/recommender.md) for a deeper walkthrough of the
-recommendation pipeline, and [docs/vector-store-contract.md](docs/vector-store-contract.md)
-for the Qdrant payload shape this repo reads.
+recommendation pipeline, [docs/diversity-recommender.md](docs/diversity-recommender.md)
+for the surprise-me/diversity mode, and
+[docs/vector-store-contract.md](docs/vector-store-contract.md) for the Qdrant
+payload shape this repo reads.

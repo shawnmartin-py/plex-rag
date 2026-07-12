@@ -15,6 +15,11 @@ does a preflight check — reachable, collection exists, vector size matches
 `gemini-embedding-001` — and fails fast with a clear message if not; it never
 tries to create or repair the collection itself.
 
+A second recommendation mode — recommending movies *farthest* from recent
+watch history rather than nearest to a query, exposed as `plex-rag
+surprise` and the web UI's "Surprise me" button — is described in
+[docs/diversity-recommender.md](diversity-recommender.md).
+
 ## Entry points
 
 - **CLI** — `plex-rag chat [--no-spoilers] [--verbose]`

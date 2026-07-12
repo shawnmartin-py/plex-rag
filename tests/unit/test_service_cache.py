@@ -8,6 +8,7 @@ from nicegui import run
 import nicegui_app.service_cache as service_cache
 from app.domain.ports import ConversationTitler
 from app.repositories.qdrant_media_items import QdrantMediaItems
+from app.services.diversity_recommendation import DiversityRecommendationService
 from app.services.recommendation import ConversationalRecommendationService
 
 _BuiltService = tuple[
@@ -21,6 +22,9 @@ def _isolated_cache(monkeypatch: pytest.MonkeyPatch) -> None:
     each test a fresh copy so calls in one test can't leak into another."""
     monkeypatch.setattr(service_cache, "_cache", {})
     monkeypatch.setattr(service_cache, "_lock", asyncio.Lock())
+    monkeypatch.setattr(service_cache, "_diversity_service", None)
+    monkeypatch.setattr(service_cache, "_diversity_loaded", False)
+    monkeypatch.setattr(service_cache, "_diversity_lock", asyncio.Lock())
 
 
 def make_built_service() -> _BuiltService:
@@ -119,3 +123,46 @@ async def test_get_service_concurrent_calls_build_only_once() -> None:
 
     assert call_count == 1
     assert first is second
+
+
+# --- get_diversity_service ---
+
+
+@pytest.mark.anyio
+async def test_get_diversity_service_returns_same_instance_on_repeated_calls() -> None:
+    built = MagicMock(spec=DiversityRecommendationService)
+    with patch.object(service_cache, "build_diversity_service", return_value=built):
+        first = await service_cache.get_diversity_service()
+        second = await service_cache.get_diversity_service()
+
+    assert first is second is built
+
+
+@pytest.mark.anyio
+async def test_get_diversity_service_caches_a_legitimate_none_result() -> None:
+    """The whole reason for the boxed-tuple trick: a build that legitimately
+    returns None (watch_history collection missing) must be cached as None, not
+    treated as a cancelled io_bound call and re-attempted every call."""
+    with patch.object(
+        service_cache, "build_diversity_service", return_value=None
+    ) as mock_build:
+        first = await service_cache.get_diversity_service()
+        second = await service_cache.get_diversity_service()
+
+    assert first is None
+    assert second is None
+    mock_build.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_get_diversity_service_does_not_rebuild_after_first_call() -> None:
+    with patch.object(
+        service_cache,
+        "build_diversity_service",
+        return_value=MagicMock(spec=DiversityRecommendationService),
+    ) as mock_build:
+        await service_cache.get_diversity_service()
+        await service_cache.get_diversity_service()
+        await service_cache.get_diversity_service()
+
+    assert mock_build.call_count == 1

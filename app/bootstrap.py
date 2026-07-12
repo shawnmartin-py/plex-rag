@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 from langchain_core.embeddings import Embeddings
 from langchain_google_genai import (
@@ -19,12 +20,24 @@ from app.adapters.retrievers import (
     LLMEnrichmentRetriever,
     LLMKnowledgeRetriever,
 )
-from app.config import QDRANT_COLLECTION, QDRANT_URL
+from app.config import QDRANT_COLLECTION, QDRANT_URL, QDRANT_WATCH_HISTORY_COLLECTION
+from app.domain.diversity import DiversityRecommender
 from app.domain.ports import CandidateRetriever, ConversationTitler
 from app.domain.recommender import MovieRecommender
+from app.repositories.candidate_pool import QdrantCandidatePool
 from app.repositories.qdrant_media_items import QdrantMediaItems
-from app.repositories.vector_store import connect_vector_store, load_synopsis_documents
+from app.repositories.vector_store import (
+    QdrantUnavailableError,
+    connect_vector_store,
+    load_synopsis_documents,
+    load_synopsis_vectors,
+    load_watch_history_points,
+)
+from app.repositories.watch_history import QdrantWatchHistory
+from app.services.diversity_recommendation import DiversityRecommendationService
 from app.services.recommendation import ConversationalRecommendationService
+
+logger = logging.getLogger(__name__)
 
 _SAFETY_OFF = {
     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
@@ -115,3 +128,42 @@ def build_recommender_service(
         media_repo,
         GeminiConversationTitler(llm),
     )
+
+
+def build_diversity_service() -> DiversityRecommendationService | None:
+    """Composition root for the diversity/"surprise me" feature — deliberately
+    separate from `build_recommender_service`, not folded into its return tuple:
+    this feature is optional (depends on plex-ingest's watch_history pipeline
+    having actually run — see docs/pipeline-design.md) in a way the main chat
+    feature isn't, and `QdrantUnavailableError` here must disable the feature, not
+    take down the whole app the way it would if raised during the main
+    `connect_vector_store` call above. Callers (CLI, NiceGUI) treat `None` as
+    "feature unavailable" and say so, rather than crashing."""
+    embeddings = GoogleGenerativeAIEmbeddings(model="gemini-embedding-001")
+
+    try:
+        watch_history_store = connect_vector_store(
+            QDRANT_URL, QDRANT_WATCH_HISTORY_COLLECTION, embeddings
+        )
+    except QdrantUnavailableError:
+        logger.warning(
+            "watch_history collection (%s) unavailable — diversity mode disabled. "
+            "Run plex-ingest's watch_history pipeline to enable it.",
+            QDRANT_WATCH_HISTORY_COLLECTION,
+        )
+        return None
+
+    watch_history_points = load_watch_history_points(
+        watch_history_store, QDRANT_WATCH_HISTORY_COLLECTION
+    )
+
+    media_store = connect_vector_store(QDRANT_URL, QDRANT_COLLECTION, embeddings)
+    candidates = load_synopsis_vectors(media_store, QDRANT_COLLECTION)
+    media_repo = QdrantMediaItems(
+        load_synopsis_documents(media_store, QDRANT_COLLECTION)
+    )
+
+    recommender = DiversityRecommender(
+        QdrantWatchHistory(watch_history_points), QdrantCandidatePool(candidates)
+    )
+    return DiversityRecommendationService(recommender, media_repo)

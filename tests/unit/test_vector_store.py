@@ -7,6 +7,8 @@ from app.repositories.vector_store import (
     QdrantUnavailableError,
     connect_vector_store,
     load_synopsis_documents,
+    load_synopsis_vectors,
+    load_watch_history_points,
 )
 from tests.e2e.conftest import StubEmbeddings
 
@@ -83,3 +85,68 @@ def test_load_synopsis_documents_filters_by_synopsis_embedding_type() -> None:
     call_kwargs = mock_vector_store.client.scroll.call_args.kwargs
     assert call_kwargs["scroll_filter"].must[0].match.value == "synopsis"
     assert call_kwargs["collection_name"] == "media_items"
+
+
+# --- load_synopsis_vectors ---
+
+
+def test_load_synopsis_vectors_builds_candidates_from_scroll_results() -> None:
+    mock_point = MagicMock()
+    mock_point.payload = {
+        "metadata": {"imdb_id": "tt6751668", "imdb_rating": 8.5},
+    }
+    mock_point.vector = [0.1, 0.2, 0.3]
+    mock_vector_store = MagicMock()
+    mock_vector_store.client.scroll.return_value = ([mock_point], None)
+
+    result = load_synopsis_vectors(mock_vector_store, "media_items")
+
+    assert len(result) == 1
+    assert result[0].imdb_id == "tt6751668"
+    assert result[0].vector == [0.1, 0.2, 0.3]
+    assert result[0].imdb_rating == 8.5
+
+
+def test_load_synopsis_vectors_filters_by_synopsis_embedding_type() -> None:
+    mock_vector_store = MagicMock()
+    mock_vector_store.client.scroll.return_value = ([], None)
+
+    load_synopsis_vectors(mock_vector_store, "media_items")
+
+    call_kwargs = mock_vector_store.client.scroll.call_args.kwargs
+    assert call_kwargs["scroll_filter"].must[0].match.value == "synopsis"
+    assert call_kwargs["with_vectors"] is True
+
+
+def test_load_synopsis_vectors_raises_on_non_flat_vector() -> None:
+    mock_point = MagicMock()
+    mock_point.payload = {"metadata": {"imdb_id": "tt0001", "imdb_rating": 7.0}}
+    mock_point.vector = {"named": [0.1, 0.2]}
+    mock_vector_store = MagicMock()
+    mock_vector_store.client.scroll.return_value = ([mock_point], None)
+
+    with pytest.raises(TypeError, match="tt0001"):
+        load_synopsis_vectors(mock_vector_store, "media_items")
+
+
+# --- load_watch_history_points ---
+
+
+def test_load_watch_history_points_builds_points_from_scroll_results() -> None:
+    mock_point = MagicMock()
+    mock_point.payload = {
+        "metadata": {
+            "imdb_id": "tt3605418",
+            "last_viewed_at": "2026-07-01T21:24:14",
+        },
+    }
+    mock_point.vector = [0.4, 0.5]
+    mock_vector_store = MagicMock()
+    mock_vector_store.client.scroll.return_value = ([mock_point], None)
+
+    result = load_watch_history_points(mock_vector_store, "watch_history")
+
+    assert len(result) == 1
+    assert result[0].imdb_id == "tt3605418"
+    assert result[0].vector == [0.4, 0.5]
+    assert result[0].last_viewed_at.isoformat() == "2026-07-01T21:24:14"

@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Protocol
 
 from langchain_core.documents import Document
@@ -89,3 +90,40 @@ class MediaItemLookup(Protocol):
     recommended films — satisfied by QdrantMediaItems."""
 
     def get_by_id(self, imdb_id: str) -> MediaItem | None: ...
+
+
+@dataclass(frozen=True)
+class WatchedEmbedding:
+    """One point from plex-ingest's `watch_history` collection — see
+    docs/vector-store-contract.md. `last_viewed_at` is naive (no tzinfo), matching
+    how plex-ingest stores it (Plex's own local-server timestamps carry no tzinfo
+    either) — callers compare it against a naive `now`, not an aware one."""
+
+    imdb_id: str
+    vector: list[float]
+    last_viewed_at: datetime
+
+
+class WatchHistoryLookup(Protocol):
+    """Recent watched-title embeddings for the diversity recommender's aversion
+    vector — satisfied by QdrantWatchHistory. Returns an empty list, not an error,
+    when the watch_history collection has nothing in the current window."""
+
+    def recent(self) -> list[WatchedEmbedding]: ...
+
+
+@dataclass(frozen=True)
+class CandidateEmbedding:
+    """One `media_items` synopsis-point embedding, the diversity recommender's
+    candidate pool — satisfied by QdrantCandidatePool. `media_items` already only
+    contains unwatched movies (plex-ingest's own scope — see
+    docs/pipeline-design.md), so no separate "exclude watched" filtering is needed
+    here."""
+
+    imdb_id: str
+    vector: list[float]
+    imdb_rating: float | None
+
+
+class CandidatePool(Protocol):
+    def all(self) -> list[CandidateEmbedding]: ...

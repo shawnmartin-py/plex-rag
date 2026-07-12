@@ -30,6 +30,15 @@ def chat(
 
 
 @app.command()
+def surprise() -> None:
+    """Recommend something different from your recent Plex watch history, instead
+    of matching a query — the opposite of `chat`'s similarity search."""
+    from app.surprise import main as surprise_main
+
+    surprise_main()
+
+
+@app.command()
 def clear_history() -> None:
     """Wipe the web UI's recent-conversations history."""
     from app.config import CONVERSATIONS_DB_PATH

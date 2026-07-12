@@ -2,9 +2,10 @@ import asyncio
 
 from nicegui import run
 
-from app.bootstrap import build_recommender_service
+from app.bootstrap import build_diversity_service, build_recommender_service
 from app.domain.ports import ConversationTitler
 from app.repositories.qdrant_media_items import QdrantMediaItems
+from app.services.diversity_recommendation import DiversityRecommendationService
 from app.services.recommendation import ConversationalRecommendationService
 
 # Module-level, process-lifetime cache keyed by spoiler_free — the direct
@@ -35,3 +36,33 @@ async def get_service(
                 raise RuntimeError("build_recommender_service was cancelled")
             _cache[spoiler_free] = result
         return _cache[spoiler_free]
+
+
+# Separate cache from `_cache` above: the diversity service isn't keyed by
+# spoiler_free (it has no spoiler concept), and its build can legitimately return
+# None (watch_history collection not populated yet). That's exactly the value
+# `get_service` above treats as "io_bound was cancelled" — ambiguous here, since a
+# legitimate None and a cancellation would look identical. `_build_boxed` sidesteps
+# it by always returning a 1-tuple, so only a genuine cancellation yields a bare
+# None from `run.io_bound` itself.
+_diversity_service: DiversityRecommendationService | None = None
+_diversity_loaded = False
+_diversity_lock = asyncio.Lock()
+
+
+def _build_boxed() -> tuple[DiversityRecommendationService | None]:
+    return (build_diversity_service(),)
+
+
+async def get_diversity_service() -> DiversityRecommendationService | None:
+    global _diversity_service, _diversity_loaded
+    if _diversity_loaded:
+        return _diversity_service
+    async with _diversity_lock:
+        if not _diversity_loaded:
+            boxed = await run.io_bound(_build_boxed)
+            if boxed is None:
+                raise RuntimeError("build_diversity_service was cancelled")
+            (_diversity_service,) = boxed
+            _diversity_loaded = True
+    return _diversity_service

@@ -6,6 +6,15 @@ from pathlib import Path
 QDRANT_URL = os.environ.get("QDRANT_URL", "http://localhost:6333")
 QDRANT_COLLECTION = os.environ.get("QDRANT_COLLECTION", "media_items")
 
+# Second, separate collection for the diversity/"surprise me" recommender — see
+# docs/vector-store-contract.md's `watch_history` collection section. Optional:
+# the feature disables itself gracefully if this collection doesn't exist yet
+# (see app/bootstrap.py:build_diversity_service), so an unset/missing collection
+# doesn't break the main chat feature.
+QDRANT_WATCH_HISTORY_COLLECTION = os.environ.get(
+    "QDRANT_WATCH_HISTORY_COLLECTION", "watch_history"
+)
+
 # Encrypts NiceGUI's per-browser-tab storage (nicegui_app/); any local value
 # works since nothing sensitive is stored, but it must stay stable across
 # restarts or open tabs get a fresh (empty) transcript.

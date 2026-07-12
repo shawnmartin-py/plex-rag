@@ -8,6 +8,7 @@ from nicegui import Client, app, run, ui
 from nicegui.events import ValueChangeEventArguments
 
 from app.config import CONVERSATIONS_DB_PATH, NICEGUI_STORAGE_SECRET
+from app.domain.diversity import NoWatchHistoryError
 from app.domain.ports import ConversationTitler, TextDelta
 from app.models.conversation import Conversation, ConversationMessage, MessageRole
 from app.models.media_item import MediaItem, StreamingSource, VideoResolution
@@ -19,7 +20,7 @@ from nicegui_app.components import (
     render_movie_card,
     render_recommendations,
 )
-from nicegui_app.service_cache import get_service
+from nicegui_app.service_cache import get_diversity_service, get_service
 from nicegui_app.styles import SIDEBAR_WIDTH_PX, apply_theme
 
 _MAX_ANSWER_CHARS_FOR_TITLE = 1500
@@ -120,6 +121,11 @@ async def index(client: Client) -> None:
                 ui.html(_SIDEBAR_GLYPH)
         new_conv_btn = (
             ui.button("New conversation", icon="add", color=None)
+            .props("flat no-caps")
+            .classes("plex-new-conv-btn w-full")
+        )
+        surprise_btn = (
+            ui.button("Surprise me", icon="shuffle", color=None)
             .props("flat no-caps")
             .classes("plex-new-conv-btn w-full")
         )
@@ -314,8 +320,83 @@ async def index(client: Client) -> None:
         chat_input.enable()
         busy["value"] = False
 
+    async def on_surprise() -> None:
+        if busy["value"]:
+            return
+        busy["value"] = True
+        surprise_btn.disable()
+
+        _, _, titler = await current_service()
+
+        if state["viewing_recent_id"] is not None:
+            chat_service, _, _ = await current_service()
+            chat_service.reset_history()
+            messages.clear()
+            _start_new_conversation()
+            render_stored_messages()
+            render_recent_list()
+
+        prompt = "Surprise me"
+        messages.append({"role": "user", "content": prompt})
+        render_chat_row(transcript, "user", prompt)
+
+        assistant_body = render_chat_row(transcript, "assistant", "")
+        with assistant_body:
+            spinner = ui.spinner()
+
+        diversity_service = await get_diversity_service()
+        items: list[MediaItem] = []
+
+        if diversity_service is None:
+            answer = (
+                "Diversity mode isn't set up yet — the watch_history collection "
+                "hasn't been populated. Run plex-ingest's watch_history pipeline "
+                "first."
+            )
+        else:
+            try:
+                result = await run.io_bound(diversity_service.recommend)
+            except NoWatchHistoryError:
+                answer = (
+                    "No recent watch history found — watch something on Plex first!"
+                )
+            else:
+                # run.io_bound returns None only if the call was cancelled — never
+                # a legitimate outcome of recommend(), which returns [] at worst.
+                if result is None:
+                    answer = "Something went wrong — please try again."
+                else:
+                    items = result
+                    answer = (
+                        "Something different, based on your recent watches:"
+                        if items
+                        else "Nothing left to recommend right now — try again later."
+                    )
+
+        spinner.delete()
+        with assistant_body:
+            ui.markdown(answer).classes("plex-msg-prose")
+            for i, item in enumerate(items):
+                render_movie_card(item, "", top_pick=(i == 0))
+
+        messages.append(
+            {
+                "role": "assistant",
+                "content": answer,
+                "items": [_item_to_dict(i) for i in items],
+            }
+        )
+        app.storage.tab["messages"] = messages
+
+        await _persist_current_conversation(prompt, answer, titler)
+        render_recent_list()
+
+        surprise_btn.enable()
+        busy["value"] = False
+
     spoiler_switch.on_value_change(on_spoiler_toggle)
     new_conv_btn.on_click(on_new_conversation)
+    surprise_btn.on_click(on_surprise)
     send_icon.on("click", on_send)
     chat_input.on("keydown.enter", on_send)
 
