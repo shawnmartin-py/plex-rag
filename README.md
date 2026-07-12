@@ -87,15 +87,18 @@ Create a `.env` file in the project root (or export these in your shell):
 ### Install
 
 ```bash
-uv sync
+make install
 ```
+
+Runs `uv sync` and installs the pre-commit hook. Run `make help` at any time
+for a quick reference of every command below.
 
 ## Usage
 
 ### Web UI
 
 ```bash
-plex-rag-web
+make web
 ```
 
 Opens at `http://localhost:8080`.
@@ -104,13 +107,26 @@ Opens at `http://localhost:8080`.
 
 ```bash
 # Start an interactive recommendation session in the terminal
-plex-rag chat
+make chat
 
-# Start in spoiler-free mode
-plex-rag chat --no-spoilers
+# Wipe the web UI's recent-conversations history
+make clear-history
 
-# Show retriever source coverage after each response (for debugging bias)
-plex-rag chat --verbose
+# Flags aren't exposed through make — call plex-rag directly for those
+plex-rag chat --no-spoilers  # spoiler-free mode
+plex-rag chat --verbose      # show retriever source coverage after each response (for debugging bias)
+```
+
+## Development
+
+```bash
+make test              # full suite (unit + integration + e2e)
+make test-unit
+make test-integration
+make test-e2e
+make typecheck          # mypy, strict mode
+make pre-commit         # every pre-commit hook (ruff, mypy, detect-secrets, ...) against all files
+make check              # pre-commit + test — the same gate CI runs
 ```
 
 ## Architecture
