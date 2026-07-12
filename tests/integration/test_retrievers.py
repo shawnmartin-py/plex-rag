@@ -8,6 +8,7 @@ from app.adapters.retrievers import (
     HyDEVectorRetriever,
     LLMEnrichmentRetriever,
     LLMKnowledgeRetriever,
+    TitleSelection,
 )
 
 
@@ -128,7 +129,9 @@ async def test_llm_retriever_returns_matched_docs(
     llm_retriever: tuple[LLMKnowledgeRetriever, MagicMock],
 ) -> None:
     retriever, mock_chain = llm_retriever
-    mock_chain.ainvoke = AsyncMock(return_value='["Parasite", "Oldboy"]')
+    mock_chain.ainvoke = AsyncMock(
+        return_value=TitleSelection(titles=["Parasite", "Oldboy"])
+    )
     docs = await retriever.retrieve("dark Korean cinema")
     assert len(docs) == 2
 
@@ -137,35 +140,20 @@ async def test_llm_retriever_is_case_insensitive(
     llm_retriever: tuple[LLMKnowledgeRetriever, MagicMock],
 ) -> None:
     retriever, mock_chain = llm_retriever
-    mock_chain.ainvoke = AsyncMock(return_value='["PARASITE", "OldBoy"]')
+    mock_chain.ainvoke = AsyncMock(
+        return_value=TitleSelection(titles=["PARASITE", "OldBoy"])
+    )
     docs = await retriever.retrieve("dark Korean cinema")
     assert len(docs) == 2
-
-
-async def test_llm_retriever_strips_markdown_fences(
-    llm_retriever: tuple[LLMKnowledgeRetriever, MagicMock],
-) -> None:
-    retriever, mock_chain = llm_retriever
-    mock_chain.ainvoke = AsyncMock(return_value='```json\n["Parasite"]\n```')
-    docs = await retriever.retrieve("query")
-    assert len(docs) == 1
-    assert docs[0].metadata["imdb_id"] == "tt001"
-
-
-async def test_llm_retriever_handles_malformed_json_gracefully(
-    llm_retriever: tuple[LLMKnowledgeRetriever, MagicMock],
-) -> None:
-    retriever, mock_chain = llm_retriever
-    mock_chain.ainvoke = AsyncMock(return_value="Sorry, I cannot select movies.")
-    docs = await retriever.retrieve("query")
-    assert docs == []
 
 
 async def test_llm_retriever_skips_unknown_titles(
     llm_retriever: tuple[LLMKnowledgeRetriever, MagicMock],
 ) -> None:
     retriever, mock_chain = llm_retriever
-    mock_chain.ainvoke = AsyncMock(return_value='["Parasite", "Unknown Film 2099"]')
+    mock_chain.ainvoke = AsyncMock(
+        return_value=TitleSelection(titles=["Parasite", "Unknown Film 2099"])
+    )
     docs = await retriever.retrieve("query")
     assert len(docs) == 1
     assert docs[0].metadata["imdb_id"] == "tt001"
@@ -175,7 +163,7 @@ async def test_llm_retriever_passes_question_and_movie_list(
     llm_retriever: tuple[LLMKnowledgeRetriever, MagicMock],
 ) -> None:
     retriever, mock_chain = llm_retriever
-    mock_chain.ainvoke = AsyncMock(return_value="[]")
+    mock_chain.ainvoke = AsyncMock(return_value=TitleSelection(titles=[]))
     await retriever.retrieve("something tense")
     call_args = mock_chain.ainvoke.call_args[0][0]
     assert call_args["question"] == "something tense"

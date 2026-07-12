@@ -7,7 +7,9 @@ from langchain_core.embeddings import Embeddings
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.runnables import Runnable, RunnableLambda
 from langchain_qdrant import QdrantVectorStore
+from pydantic import BaseModel
 
 
 class StubLLM(BaseChatModel):
@@ -32,6 +34,22 @@ class StubLLM(BaseChatModel):
         return ChatResult(
             generations=[ChatGeneration(message=AIMessage(content=response))]
         )
+
+    def with_structured_output(
+        self, schema: dict[str, Any] | type, *, include_raw: bool = False, **kwargs: Any
+    ) -> Runnable[Any, dict[str, Any] | BaseModel]:
+        """Stand-in for provider structured-output support: parses the stubbed
+        response's raw text as JSON matching `schema`, so responses configured on
+        this stub must be JSON matching the target schema rather than free text.
+        Only the Pydantic-class form of `schema` is supported — sufficient for
+        this codebase's usage."""
+        assert isinstance(schema, type) and issubclass(schema, BaseModel)
+        pydantic_schema = schema
+
+        def _parse(message: AIMessage) -> BaseModel:
+            return pydantic_schema.model_validate_json(message.text)
+
+        return self | RunnableLambda(_parse)
 
 
 class StubEmbeddings(Embeddings):

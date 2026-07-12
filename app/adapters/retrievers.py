@@ -1,6 +1,4 @@
-import json
-import logging
-import re
+from typing import cast
 
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
@@ -8,11 +6,10 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_qdrant import QdrantVectorStore
+from pydantic import BaseModel
 from qdrant_client.models import FieldCondition, Filter, MatchValue
 
 from app.domain.ports import CandidateRetriever
-
-logger = logging.getLogger(__name__)
 
 
 class DirectSynopsisRetriever(CandidateRetriever):
@@ -93,6 +90,10 @@ class HyDEVectorRetriever(CandidateRetriever):
         )
 
 
+class TitleSelection(BaseModel):
+    titles: list[str]
+
+
 class LLMKnowledgeRetriever(CandidateRetriever):
     name = "llm-knowledge"
 
@@ -106,12 +107,8 @@ class LLMKnowledgeRetriever(CandidateRetriever):
                     "select up to 8 that are most relevant to the user's request.\n\n"
                     "Use your knowledge of each film's themes, tone, director, "
                     "cultural significance, "
-                    "subgenre, and critical reception — not just the title. Return "
-                    "ONLY a JSON array of "
-                    "the selected titles exactly as they appear in the list (without "
-                    "years), "
-                    'e.g.: ["Movie Title", "Another Film"]. No explanation, no '
-                    "markdown, just the JSON array."
+                    "subgenre, and critical reception — not just the title. Select "
+                    "titles exactly as they appear in the list (without years)."
                 ),
             ),
             ("human", "Request: {question}\n\nAvailable movies:\n{movie_list}"),
@@ -124,27 +121,24 @@ class LLMKnowledgeRetriever(CandidateRetriever):
         movie_list: str,
         doc_by_title: dict[str, Document],
     ) -> None:
-        self._chain = self._prompt | llm | StrOutputParser()
+        self._chain = self._prompt | llm.with_structured_output(TitleSelection)
         self._movie_list = movie_list
         self._doc_by_title = doc_by_title
 
     async def retrieve(self, query: str) -> list[Document]:
-        response = await self._chain.ainvoke(
-            {"question": query, "movie_list": self._movie_list}
+        # with_structured_output's return type is broadened to
+        # `dict[str, Any] | BaseModel` to cover non-Pydantic schemas; passing a
+        # Pydantic class with the default include_raw=False always yields an
+        # instance of that class.
+        selection = cast(
+            TitleSelection,
+            await self._chain.ainvoke(
+                {"question": query, "movie_list": self._movie_list}
+            ),
         )
-        clean = re.sub(r"```(?:json)?|```", "", response).strip()
-        try:
-            titles: list[str] = json.loads(clean)
-        except json.JSONDecodeError:
-            logger.warning(
-                "LLMKnowledgeRetriever got non-JSON response, contributing no "
-                "candidates: %r",
-                response,
-            )
-            titles = []
         return [
             self._doc_by_title[t.lower()]
-            for t in titles
+            for t in selection.titles
             if t.lower() in self._doc_by_title
         ]
 
