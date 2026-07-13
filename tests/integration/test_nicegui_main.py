@@ -9,6 +9,7 @@ from nicegui import ui
 from nicegui.testing import user_simulation
 
 import app.config as config
+import app.repositories.vector_store as vector_store
 import nicegui_app.service_cache as service_cache
 from app.domain.ports import ConversationTitler
 from app.models.media_item import MediaItem, StreamingSource, VideoResolution
@@ -25,7 +26,8 @@ from app.services.recommendation import (
 # `user_simulation(main_file=...)` runs nicegui_app/main.py itself (via
 # runpy, as if executed directly) inside an isolated in-process ASGI app, so
 # the real `@ui.page("/")` / event-handler wiring is exercised end to end —
-# only `build_recommender_service` (Qdrant + Gemini) is mocked out.
+# only `build_recommender_service` and `ensure_qdrant_reachable` (Qdrant +
+# Gemini) are mocked out.
 _MAIN_FILE = Path(__file__).resolve().parents[2] / "nicegui_app" / "main.py"
 
 
@@ -104,6 +106,16 @@ def _isolated_conversation_store(
     db_path = tmp_path / "conversations.duckdb"
     monkeypatch.setattr(config, "CONVERSATIONS_DB_PATH", str(db_path))
     return db_path
+
+
+@pytest.fixture(autouse=True)
+def _skip_qdrant_reachability_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`main()` calls `ensure_qdrant_reachable` at module-exec time, before
+    `build_recommender_service` is ever reached, so it can't be bypassed by
+    mocking that alone. Same runpy/fresh-namespace reasoning as
+    `_isolated_conversation_store` above: patch the source module it imports
+    from, not the (re-created every run) `nicegui_app.main` one."""
+    monkeypatch.setattr(vector_store, "ensure_qdrant_reachable", lambda *a, **kw: None)
 
 
 @pytest.mark.anyio
