@@ -15,6 +15,11 @@ class ConversationMessage:
     # only ever populated for role=ASSISTANT — kept as dicts rather than MediaItem so
     # this model stays a pure storage/replay shape, not a rendering dependency.
     items: list[dict[str, object]] = field(default_factory=list)
+    # True for a "Surprise me" turn's assistant message: its items are the
+    # diversity recommender's plain picks, not paired to numbered sections in
+    # the text, so replay must render them differently than a regular chat
+    # turn (see render_surprise_results in nicegui_app/components.py).
+    is_surprise: bool = False
 
 
 @dataclass

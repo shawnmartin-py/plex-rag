@@ -134,3 +134,24 @@ def test_messages_with_items_roundtrip_losslessly(tmp_path: Path) -> None:
     result = store.get("conv-1")
     assert result is not None
     assert result.messages[1].items == [item_dict]
+
+
+def test_is_surprise_roundtrips_and_defaults_false(tmp_path: Path) -> None:
+    store = make_store(tmp_path)
+    conversation = make_conversation(
+        messages=[
+            ConversationMessage(role=MessageRole.USER, content="regular turn"),
+            ConversationMessage(role=MessageRole.ASSISTANT, content="a"),
+            ConversationMessage(role=MessageRole.USER, content="Surprise me"),
+            ConversationMessage(
+                role=MessageRole.ASSISTANT,
+                content="Something different:",
+                is_surprise=True,
+            ),
+        ]
+    )
+    store.save(conversation)
+    result = store.get("conv-1")
+    assert result is not None
+    assert result.messages[1].is_surprise is False
+    assert result.messages[3].is_surprise is True

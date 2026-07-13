@@ -3,7 +3,12 @@ from typing import Any
 
 from langchain_core.documents import Document
 
-from app.models.media_item import MediaItem, StreamingSource, VideoResolution
+from app.models.media_item import (
+    HdrFormat,
+    MediaItem,
+    StreamingSource,
+    VideoResolution,
+)
 
 
 def _enum_or_none[E: enum.Enum](enum_cls: type[E], raw: Any) -> E | None:
@@ -17,6 +22,14 @@ def _enum_or_none[E: enum.Enum](enum_cls: type[E], raw: Any) -> E | None:
         if member.value == raw:
             return member
     return None
+
+
+def _hdr_formats_or_empty(raw: Any) -> list[HdrFormat]:
+    """Same degrade-don't-break stance as _enum_or_none, applied per element:
+    a missing/malformed field or an unrecognized member just means no HDR badge."""
+    if not isinstance(raw, list):
+        return []
+    return [fmt for value in raw if (fmt := _enum_or_none(HdrFormat, value))]
 
 
 def _media_item_from_metadata(metadata: dict[str, Any]) -> MediaItem:
@@ -34,6 +47,7 @@ def _media_item_from_metadata(metadata: dict[str, Any]) -> MediaItem:
         video_resolution=_enum_or_none(
             VideoResolution, metadata.get("video_resolution")
         ),
+        hdr_formats=_hdr_formats_or_empty(metadata.get("hdr_formats")),
         source_platform=_enum_or_none(StreamingSource, metadata.get("source_platform")),
     )
 
@@ -51,3 +65,8 @@ class QdrantMediaItems:
 
     def get_by_id(self, imdb_id: str) -> MediaItem | None:
         return self._by_id.get(imdb_id)
+
+    def all_items(self) -> list[MediaItem]:
+        """Every synced item — powers the web UI's library snapshot. Cheap:
+        the lookup table is already fully materialized at construction."""
+        return list(self._by_id.values())

@@ -2,11 +2,17 @@ import pytest
 from nicegui import ui
 from nicegui.testing import user_simulation
 
-from app.models.media_item import MediaItem
-from nicegui_app.components import render_chat_row, render_recommendations
+from app.models.media_item import HdrFormat, MediaItem
+from nicegui_app.components import (
+    render_chat_row,
+    render_recommendations,
+    render_surprise_results,
+)
 
 
-def make_item(imdb_id: str, title: str) -> MediaItem:
+def make_item(
+    imdb_id: str, title: str, hdr_formats: list[HdrFormat] | None = None
+) -> MediaItem:
     return MediaItem(
         imdb_id=imdb_id,
         type="movie",
@@ -15,6 +21,7 @@ def make_item(imdb_id: str, title: str) -> MediaItem:
         imdb_rating=8.0,
         content_rating="R",
         genres=["Drama"],
+        hdr_formats=hdr_formats or [],
     )
 
 
@@ -125,6 +132,97 @@ async def test_render_recommendations_extra_sections_render_as_plain_markdown() 
         await user.should_see(content="Mulholland Drive")
         interaction = user.find(content="Top pick")
         assert len(interaction.elements) == 1
+
+
+# --- render_surprise_results ---
+
+
+@pytest.mark.anyio
+async def test_render_surprise_results_renders_every_item_without_numbered_text() -> (
+    None
+):
+    """Surprise-me answers are plain prose with no numbered sections — this
+    is the replay path `render_recommendations` can't handle (its "no
+    numbered sections" fallback intentionally drops items, since that also
+    covers a regular chat turn's declined-to-recommend response)."""
+    response = "Something different, based on your recent watches:"
+    items = [make_item("tt1", "Paprika"), make_item("tt2", "Perfect Blue")]
+
+    async def root() -> None:
+        container = ui.column()
+        render_surprise_results(container, response, items)
+
+    async with user_simulation(root=root) as user:
+        await user.open("/")
+        await user.should_see(content=response)
+        await user.should_see(content="Paprika")
+        await user.should_see(content="Perfect Blue")
+        await user.should_see(content="Top pick")
+        interaction = user.find(content="Top pick")
+        assert len(interaction.elements) == 1
+
+
+@pytest.mark.anyio
+async def test_render_surprise_results_with_no_items_renders_text_only() -> None:
+    response = "Nothing left to recommend right now — try again later."
+
+    async def root() -> None:
+        container = ui.column()
+        render_surprise_results(container, response, [])
+
+    async with user_simulation(root=root) as user:
+        await user.open("/")
+        await user.should_see(content=response)
+        await user.should_not_see(content="Top pick")
+
+
+@pytest.mark.anyio
+async def test_render_recommendations_renders_imdb_rating_badge() -> None:
+    """The rating badge is a raw anchor (so the star can be a tungsten span)
+    — it must still carry the rating and the IMDb link."""
+    response = "1. **A** (2019)\nBody A."
+    items = [make_item("tt1", "A")]
+
+    async def root() -> None:
+        container = ui.column()
+        render_recommendations(container, response, items)
+
+    async with user_simulation(root=root) as user:
+        await user.open("/")
+        await user.should_see(content="8.0")
+        await user.should_see(content="https://www.imdb.com/title/tt1/")
+
+
+@pytest.mark.anyio
+async def test_render_recommendations_renders_hdr_format_badges() -> None:
+    """A dual-layer Dolby Vision file carries both formats at once — every
+    listed format gets its own mark, in list order."""
+    response = "1. **A** (2019)\nBody A."
+    items = [make_item("tt1", "A", hdr_formats=[HdrFormat.HDR, HdrFormat.DV])]
+
+    async def root() -> None:
+        container = ui.column()
+        render_recommendations(container, response, items)
+
+    async with user_simulation(root=root) as user:
+        await user.open("/")
+        await user.should_see(marker="hdr-badge-hdr")
+        await user.should_see(marker="hdr-badge-dv")
+
+
+@pytest.mark.anyio
+async def test_render_recommendations_omits_hdr_badges_for_sdr_item() -> None:
+    response = "1. **A** (2019)\nBody A."
+    items = [make_item("tt1", "A")]
+
+    async def root() -> None:
+        container = ui.column()
+        render_recommendations(container, response, items)
+
+    async with user_simulation(root=root) as user:
+        await user.open("/")
+        await user.should_not_see(marker="hdr-badge-hdr")
+        await user.should_not_see(marker="hdr-badge-dv")
 
 
 # --- render_chat_row ---

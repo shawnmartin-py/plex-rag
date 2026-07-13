@@ -34,6 +34,27 @@ def strip_section_heading(text: str) -> str:
     return text
 
 
+# A bold run-in label glued onto the preceding sentence, e.g.
+# "...heavy entry. **Tone & Pacing:** Slow and mournful". Both colon
+# placements occur in real output: **Label:** and **Label**:.
+# The lookbehind excludes list markers (- * +) so a label that already
+# starts its own bullet line is left alone.
+_RUN_IN_LABEL_RE = re.compile(r"(?<=[^\s*+-])[ \t]+(?=\*\*[^*\n]{1,60}(?::\*\*|\*\*:))")
+
+
+def break_out_run_in_labels(text: str) -> str:
+    """Give every bold run-in label (``**Tone & Pacing:** ...``) its own
+    paragraph.
+
+    The generator usually starts a new paragraph per labeled block, but
+    sometimes glues a second label onto the end of the previous sentence.
+    Mid-paragraph, the card stylesheet can't lift it into a block label —
+    it only targets ``strong:first-child`` — so the label renders inline.
+    A deterministic markdown fix beats prompting the model about layout.
+    """
+    return _RUN_IN_LABEL_RE.sub("\n\n", text)
+
+
 def parse_sections(response: str) -> list[tuple[bool, str]]:
     """Split LLM response into (is_numbered_section, text) pairs."""
     parts = re.split(

@@ -15,9 +15,7 @@ class QdrantUnavailableError(RuntimeError):
     pass
 
 
-def connect_vector_store(
-    url: str, collection_name: str, embeddings: Embeddings
-) -> QdrantVectorStore:
+def _connect_and_validate(url: str, collection_name: str) -> QdrantClient:
     """Connect to the Qdrant server plex-ingest owns and confirm it's usable. Per
     docs/vector-store-contract.md, the recommender never starts/manages this
     container or writes to it — only plex-ingest does — so this fails fast with a
@@ -49,6 +47,21 @@ def connect_vector_store(
             f"{actual_size}, expected {VECTOR_SIZE} (gemini-embedding-001) — "
             "embedding model mismatch between plex-rag and plex-ingest."
         )
+    return client
+
+
+def ensure_qdrant_reachable(url: str, collection_name: str) -> None:
+    """Same fail-fast validation as `connect_vector_store`, minus the embeddings
+    wiring — for callers (the NiceGUI server's startup, before `ui.run()`) that
+    just want to surface a clear `QdrantUnavailableError` immediately rather than
+    waiting for the first page load to build the full recommender service."""
+    _connect_and_validate(url, collection_name)
+
+
+def connect_vector_store(
+    url: str, collection_name: str, embeddings: Embeddings
+) -> QdrantVectorStore:
+    client = _connect_and_validate(url, collection_name)
     return QdrantVectorStore(
         client=client, collection_name=collection_name, embedding=embeddings
     )

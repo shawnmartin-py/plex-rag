@@ -74,6 +74,7 @@ is the only cross-repo data dependency.
 | `genres` | string | comma-joined, not a list (`", ".join(genres)`) |
 | `thumb_url` | string \| null | Plex-hosted poster URL |
 | `video_resolution` | string \| null | Raw Plex `Media.videoResolution` value (`sd`/`480`/`576`/`720`/`1080`/`4k`). Mutually exclusive with `source_platform` — null whenever `source_platform` is set. |
+| `hdr_formats` | list of string | Zero or more of `"HDR"` / `"DV"`, read from the file's first video stream. A list because a Dolby Vision dual-layer file is also HDR10-compatible, so the two aren't mutually exclusive. `"HDR"` is one flat bucket for every HDR transfer function Plex reports (HDR10, HDR10+, HLG — plexapi can't tell them apart). Always `[]` for placeholder clips (same rule as `video_resolution` → null) and SDR files. |
 | `source_platform` | string \| null | `"Netflix"` or `"Disney+"` — set when the library item is actually a short placeholder clip standing in for a movie only available on that streaming platform (a real file, ~4s long, named `"Title - Year - (Platform).ext"`), not a real download. Mutually exclusive with `video_resolution`. |
 | `embedding_type` | string | `"synopsis"` or `"enriched"` — see below |
 | `section` | string | only present when `embedding_type == "enriched"`: `craft` / `meaning` / `context` |

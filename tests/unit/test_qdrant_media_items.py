@@ -2,7 +2,7 @@ from typing import Any
 
 from langchain_core.documents import Document
 
-from app.models.media_item import StreamingSource, VideoResolution
+from app.models.media_item import HdrFormat, StreamingSource, VideoResolution
 from app.repositories.qdrant_media_items import QdrantMediaItems
 
 
@@ -81,6 +81,28 @@ def test_get_by_id_defaults_video_resolution_and_source_platform_to_none() -> No
     assert item is not None
     assert item.video_resolution is None
     assert item.source_platform is None
+
+
+def test_get_by_id_parses_hdr_formats() -> None:
+    repo = QdrantMediaItems([make_synopsis_doc(hdr_formats=["HDR", "DV"])])
+    item = repo.get_by_id("tt6751668")
+    assert item is not None
+    assert item.hdr_formats == [HdrFormat.HDR, HdrFormat.DV]
+
+
+def test_get_by_id_defaults_missing_hdr_formats_to_empty_list() -> None:
+    """Points written before the field joined the contract simply lack it."""
+    repo = QdrantMediaItems([make_synopsis_doc()])
+    item = repo.get_by_id("tt6751668")
+    assert item is not None
+    assert item.hdr_formats == []
+
+
+def test_get_by_id_drops_unrecognized_hdr_format_members() -> None:
+    repo = QdrantMediaItems([make_synopsis_doc(hdr_formats=["HDR", "HDR10+"])])
+    item = repo.get_by_id("tt6751668")
+    assert item is not None
+    assert item.hdr_formats == [HdrFormat.HDR]
 
 
 def test_get_by_id_treats_unrecognized_video_resolution_as_none() -> None:

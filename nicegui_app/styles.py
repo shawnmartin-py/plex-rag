@@ -14,19 +14,41 @@ SIDEBAR_WIDTH_PX = 288
 # Design direction: "Glass × Cinematic" — frosted-glass chrome (sidebar,
 # input bar) floating over a cool ambient field, with each recommendation
 # card backed by a blurred copy of its own poster behind a left-to-right
-# dark scrim. Three text tiers: #F5F5F7 primary, #A1A1A6 secondary,
-# #6E6E73 tertiary; #0A84FF is reserved for interactive elements.
+# dark scrim. Three text tiers: #F5F5F7 primary, #B7B7C0 secondary,
+# #6E6E73 tertiary. Two accents with strict jobs: #0A84FF (interaction —
+# user bubble, send button, focus states) and #E8B04A tungsten (curation —
+# star ratings and the Top-pick eyebrow, nothing else). Card titles and the
+# sidebar wordmark are set in Geist (self-hosted, see static/fonts/); all
+# other text stays on the system SF stack.
 DARK_CSS = """
 <style>
+/* ── Display face: Geist, self-hosted (latin subset, 600/700 only) ── */
+@font-face {
+    font-family: "Geist";
+    src: url("/static/fonts/geist-latin-600.woff2") format("woff2");
+    font-weight: 600;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: "Geist";
+    src: url("/static/fonts/geist-latin-700.woff2") format("woff2");
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+}
 /* ── Design tokens ────────────────────────────────────────────────── */
 :root {
     --q-primary: #0A84FF;
     --plex-ink: #F5F5F7;
-    --plex-ink-2: #A1A1A6;
+    --plex-ink-2: #B7B7C0;
     --plex-ink-3: #6E6E73;
     --plex-accent: #0A84FF;
+    --plex-tungsten: #E8B04A;
     --plex-glass: rgba(28, 28, 32, 0.55);
     --plex-glass-border: rgba(255, 255, 255, 0.12);
+    --plex-display-font: "Geist", -apple-system, BlinkMacSystemFont,
+                         "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
 }
 
 /* ── Ground: near-black with a cool, neutral ambient field ───────── */
@@ -104,6 +126,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 .plex-sb-name {
     flex: 1 !important;
+    font-family: var(--plex-display-font) !important;
     font-size: 17px !important;
     font-weight: 600 !important;
     letter-spacing: -0.022em !important;
@@ -143,9 +166,14 @@ h1, h2, h3, h4, h5, h6 {
     font-weight: 500 !important;
     letter-spacing: -0.1px !important;
     text-transform: none !important;
-    padding: 7px 16px !important;
+    min-height: 0 !important; /* Quasar's q-btn min-height keeps it tall */
+    padding: 5px 14px !important;
+    margin-bottom: 6px !important; /* + sidebar's 4px gap = 10px apart */
     box-shadow: none !important;
     transition: background 0.15s ease !important;
+}
+.plex-new-conv-btn .q-btn__content {
+    justify-content: flex-start !important;
 }
 .plex-new-conv-btn:hover {
     background: rgba(255, 255, 255, 0.12) !important;
@@ -184,6 +212,47 @@ h1, h2, h3, h4, h5, h6 {
     font-weight: 500 !important;
 }
 
+/* ── "Tonight" canned-prompt chips ───────────────────────────────── */
+.plex-chip-row {
+    gap: 6px !important;
+    padding: 2px 2px 0 !important;
+}
+.plex-chip {
+    font-size: 12px !important;
+    color: #C9C9CF !important;
+    padding: 5px 10px !important;
+    border-radius: 999px !important;
+    background: rgba(255, 255, 255, 0.07) !important;
+    border: 1px solid rgba(255, 255, 255, 0.09) !important;
+    cursor: pointer !important;
+    transition: background 0.15s ease !important;
+}
+.plex-chip:hover {
+    background: rgba(255, 255, 255, 0.13) !important;
+}
+
+/* ── Library snapshot ────────────────────────────────────────────── */
+.plex-stats {
+    margin: 4px 2px 0 !important;
+    padding: 12px 12px 10px !important;
+    border-radius: 12px !important;
+    background: rgba(255, 255, 255, 0.05) !important;
+    border: 1px solid rgba(255, 255, 255, 0.07) !important;
+    gap: 7px !important;
+}
+.plex-stat {
+    flex-wrap: nowrap !important;
+    font-size: 12.5px !important;
+}
+.plex-stat-name {
+    color: var(--plex-ink-2) !important;
+}
+.plex-stat-value {
+    color: var(--plex-ink) !important;
+    font-weight: 600 !important;
+    font-variant-numeric: tabular-nums !important;
+}
+
 /* ── Sidebar footer (spoiler toggle pinned to the bottom) ────────── */
 .plex-sb-bottom {
     margin-top: auto !important;
@@ -194,11 +263,16 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ── Main column ─────────────────────────────────────────────────── */
+/* min-height + the transcript's flex-grow keep the input bar pinned to
+   the bottom of the viewport even when the transcript is empty — with a
+   short page, position:sticky alone leaves the bar floating high in the
+   flow (2rem offsets .nicegui-content's own 1rem vertical padding). */
 .plex-main {
     background: transparent !important;
     max-width: 920px !important;
     margin: 0 auto !important;
     padding-top: 2.25rem !important;
+    min-height: calc(100vh - 2rem) !important;
 }
 
 /* ── Chat messages ───────────────────────────────────────────────── */
@@ -259,6 +333,21 @@ h1, h2, h3, h4, h5, h6 {
         rgba(4, 4, 6, 0.78) 34%,
         rgba(4, 4, 6, 0.94) 60%) !important;
 }
+/* "Key light": a 2px line along the card's top edge in the poster's own
+   hue. The color is extracted server-side (app/adapters/poster_accent.py,
+   same saturation/brightness boost the old CSS filter applied) and arrives
+   as an inline gradient — an earlier version sampled a blurred CSS copy of
+   the poster instead, but Safari painted that masked/filtered 2px strip
+   unreliably. A plain gradient cannot fail to paint. */
+.plex-card-key {
+    position: absolute !important;
+    top: 0 !important;
+    left: 24px !important;
+    right: 24px !important;
+    height: 2px !important;
+    z-index: 2 !important;
+    opacity: 0.8 !important;
+}
 .plex-card-inner {
     position: relative !important;
     flex-wrap: nowrap !important;
@@ -290,9 +379,11 @@ h1, h2, h3, h4, h5, h6 {
     font-weight: 700 !important;
     letter-spacing: 0.08em !important;
     text-transform: uppercase !important;
-    color: #ffffff !important;
-    opacity: 0.85;
+    color: var(--plex-tungsten) !important;
     margin-bottom: 8px !important;
+}
+.plex-card-eyebrow::before {
+    content: "★ ";
 }
 .plex-title-row {
     flex-wrap: nowrap !important;
@@ -300,9 +391,10 @@ h1, h2, h3, h4, h5, h6 {
     margin-bottom: 4px !important;
 }
 .plex-card-title {
+    font-family: var(--plex-display-font) !important;
     font-size: 26px !important;
     font-weight: 700 !important;
-    letter-spacing: -0.028em !important;
+    letter-spacing: -0.024em !important;
     color: var(--plex-ink) !important;
     line-height: 1.2 !important;
 }
@@ -333,6 +425,9 @@ h1, h2, h3, h4, h5, h6 {
     text-decoration: none !important;
     cursor: pointer !important;
 }
+.plex-star {
+    color: var(--plex-tungsten) !important;
+}
 .plex-badge-link:hover {
     background: rgba(255, 255, 255, 0.26) !important;
     text-decoration: underline !important;
@@ -346,16 +441,30 @@ h1, h2, h3, h4, h5, h6 {
     width: auto !important;
     display: block !important;
 }
+.plex-format-badge {
+    width: auto !important;
+    display: block !important;
+}
+/* The gold HDR plaque is compact (~1.8:1); the Dolby Vision wordmark is a
+   long horizontal lockup (~9:1), so it gets a smaller height to sit at a
+   comparable visual weight in the meta row. */
+.plex-format-hdr {
+    height: 16px !important;
+}
+.plex-format-dv {
+    height: 11px !important;
+    opacity: 0.9;
+}
 
 /* LLM prose inside a card: bold run-in labels become block labels,
    bullets disappear — the structure reads as designed UI, not markdown. */
 .plex-card-body {
-    color: #D1D1D6 !important;
+    color: #E5E5EA !important;
     font-size: 14.5px !important;
     max-width: 65ch !important;
 }
 .plex-card-body p, .plex-card-body li {
-    color: #D1D1D6 !important;
+    color: #E5E5EA !important;
 }
 .plex-card-body ul {
     list-style: none !important;
@@ -376,12 +485,41 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ── Chat input: frosted bar, pinned while the transcript scrolls ── */
+/* The transcript's bottom padding and the fade zone work as a pair: the
+   ::before gradient reaches ~100px above the bar, and the padding keeps
+   that reach over empty space when scrolled to the end — mid-scroll,
+   clipped cards dissolve into the fade instead of colliding with the
+   input pill. */
+.plex-transcript {
+    flex: 1 0 auto !important;
+    padding-bottom: 110px !important;
+}
 .plex-input-row {
     position: sticky !important;
     bottom: 0 !important;
     z-index: 10 !important;
-    padding: 12px 0 20px !important;
-    background: linear-gradient(to top, rgba(5, 5, 7, .75) 60%, transparent) !important;
+    padding: 12px 0 24px !important;
+    background: none !important;
+}
+/* position: fixed, not absolute — the fade must span the full viewport
+   width; scoped to the row it would end in a hard vertical seam at the
+   column's edge. A plain sibling of the row (not a ::before on it) with a
+   normal, non-negative z-index — no ancestor here has a transform/filter/
+   backdrop-filter, so position: fixed is genuinely viewport-relative and
+   ordinary z-index stacking against the input row (10) is enough. */
+.plex-input-fade {
+    position: fixed !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    height: 190px !important;
+    z-index: 5 !important;
+    pointer-events: none !important;
+    background: linear-gradient(to top,
+        #050507 0%,
+        rgba(5, 5, 7, 0.92) 38%,
+        rgba(5, 5, 7, 0.55) 66%,
+        transparent 100%) !important;
 }
 .plex-chat-input .q-field__control {
     background: rgba(28, 28, 32, 0.6) !important;

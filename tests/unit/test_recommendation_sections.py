@@ -1,4 +1,5 @@
 from app.formatting.sections import (
+    break_out_run_in_labels,
     parse_sections,
     split_trailing_notes,
     strip_section_heading,
@@ -83,3 +84,34 @@ def test_strip_section_heading_keeps_text_without_heading() -> None:
 
 def test_strip_section_heading_returns_empty_for_heading_only_section() -> None:
     assert strip_section_heading("1. **Parasite** (2019)") == ""
+
+
+def test_break_out_run_in_labels_splits_label_glued_to_sentence() -> None:
+    text = "A heavy entry. **Tone & Pacing:** Slow and mournful."
+    assert (
+        break_out_run_in_labels(text)
+        == "A heavy entry.\n\n**Tone & Pacing:** Slow and mournful."
+    )
+
+
+def test_break_out_run_in_labels_handles_colon_outside_bold() -> None:
+    text = "Not an easy watch. **Content note**: Depicted twice."
+    assert (
+        break_out_run_in_labels(text)
+        == "Not an easy watch.\n\n**Content note**: Depicted twice."
+    )
+
+
+def test_break_out_run_in_labels_keeps_paragraph_leading_label() -> None:
+    text = "**Why it fits:** A war epic.\n\n**Heads-up:** Runs 2:20."
+    assert break_out_run_in_labels(text) == text
+
+
+def test_break_out_run_in_labels_keeps_bullet_labels() -> None:
+    text = "- **Why it fits:** A war epic.\n- **Heads-up:** Runs 2:20."
+    assert break_out_run_in_labels(text) == text
+
+
+def test_break_out_run_in_labels_ignores_bold_without_colon() -> None:
+    text = "The **quietest** and heaviest entry."
+    assert break_out_run_in_labels(text) == text

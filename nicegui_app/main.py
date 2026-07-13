@@ -1,4 +1,5 @@
 import logging
+import sys
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -7,18 +8,34 @@ from typing import Any
 from nicegui import Client, app, run, ui
 from nicegui.events import ValueChangeEventArguments
 
-from app.config import CONVERSATIONS_DB_PATH, NICEGUI_STORAGE_SECRET
+from app.adapters.poster_accent import PosterAccents
+from app.config import (
+    CONVERSATIONS_DB_PATH,
+    NICEGUI_STORAGE_SECRET,
+    QDRANT_COLLECTION,
+    QDRANT_URL,
+)
 from app.domain.diversity import NoWatchHistoryError
 from app.domain.ports import ConversationTitler, TextDelta
 from app.models.conversation import Conversation, ConversationMessage, MessageRole
-from app.models.media_item import MediaItem, StreamingSource, VideoResolution
+from app.models.media_item import (
+    HdrFormat,
+    MediaItem,
+    StreamingSource,
+    VideoResolution,
+)
 from app.repositories.conversation_store import ConversationStore
 from app.repositories.qdrant_media_items import QdrantMediaItems
+from app.repositories.vector_store import (
+    QdrantUnavailableError,
+    ensure_qdrant_reachable,
+)
 from app.services.recommendation import CardReady, ConversationalRecommendationService
 from nicegui_app.components import (
     render_chat_row,
     render_movie_card,
     render_recommendations,
+    render_surprise_results,
 )
 from nicegui_app.service_cache import get_diversity_service, get_service
 from nicegui_app.styles import SIDEBAR_WIDTH_PX, apply_theme
@@ -43,6 +60,49 @@ _SIDEBAR_GLYPH = (
 
 _store = ConversationStore(CONVERSATIONS_DB_PATH)
 
+# Process-lifetime accent cache — poster colors don't change while running.
+_poster_accents = PosterAccents()
+
+
+async def _accent_for(item: MediaItem) -> tuple[str, ...] | None:
+    """Key-light colors for a card, fetched/cached off the event loop."""
+    if not item.thumb_url:
+        return None
+    return await run.io_bound(_poster_accents.accent_for, item.thumb_url)
+
+
+# "Tonight" sidebar chips: label shown on the chip -> the chat message a
+# click actually sends (through the exact same turn path as typed input).
+# Deliberately curator-shaped rather than filter-shaped ("90s thriller",
+# "under 2 hours") — these lean on the enrichment profiles the retrievers
+# index, asking things a browse UI can't answer.
+_TONIGHT_PROMPTS: dict[str, str] = {
+    "Hidden gem": (
+        "What's the most overlooked film in my library — something I "
+        "probably don't realize is great? Make the case for it."
+    ),
+    "Mind-bender": (
+        "Recommend a film that will mess with my head — unreliable "
+        "narration, twisted structure, or a reality that doesn't hold."
+    ),
+    "Worth watching loud": (
+        "Recommend a film whose score or soundtrack carries it — something "
+        "worth turning up."
+    ),
+    "Defies genre": (
+        "Recommend the film in my library that most resists genre labels — "
+        "and tell me what it actually is."
+    ),
+    "A director's best": (
+        "Pick a director represented in my library and make the case for "
+        "their strongest film I own."
+    ),
+    "So bad it's good": (
+        "Recommend the most enjoyably ridiculous film in my library — "
+        "embrace the trash."
+    ),
+}
+
 
 def _item_to_dict(item: MediaItem) -> dict[str, Any]:
     return {
@@ -60,6 +120,7 @@ def _item_to_dict(item: MediaItem) -> dict[str, Any]:
         "video_resolution": item.video_resolution.value
         if item.video_resolution
         else None,
+        "hdr_formats": [fmt.value for fmt in item.hdr_formats],
         "source_platform": item.source_platform.value if item.source_platform else None,
     }
 
@@ -71,6 +132,9 @@ def _dict_to_item(data: dict[str, Any]) -> MediaItem:
             "video_resolution": VideoResolution(data["video_resolution"])
             if data.get("video_resolution")
             else None,
+            # .get() with a default: tab storage written before hdr_formats
+            # existed survives a reload after a redeploy
+            "hdr_formats": [HdrFormat(v) for v in data.get("hdr_formats", [])],
             "source_platform": StreamingSource(data["source_platform"])
             if data.get("source_platform")
             else None,
@@ -108,7 +172,12 @@ async def index(client: Client) -> None:
     with (
         ui.left_drawer(value=True, fixed=True, bordered=False)
         .classes("plex-sidebar")
-        .props(f"width={SIDEBAR_WIDTH_PX}")
+        # behavior=desktop: below ~1024px Quasar otherwise switches the
+        # drawer to mobile overlay mode, whose dimming backdrop over this
+        # near-black theme makes the whole page (input bar included) read
+        # as empty. Docked-always is right for a desktop-shaped app; the
+        # toggle still collapses it on narrow windows.
+        .props(f"width={SIDEBAR_WIDTH_PX} behavior=desktop")
     ) as drawer:
         with ui.row().classes("plex-sb-head w-full items-center"):
             with ui.element("div").classes("plex-app-mark"):
@@ -132,6 +201,20 @@ async def index(client: Client) -> None:
         )
         ui.label("Recent").classes("plex-sec-label")
         recent_container = ui.column().classes("w-full gap-0")
+        ui.label("Tonight").classes("plex-sec-label")
+        with ui.row().classes("plex-chip-row w-full"):
+            for chip_label, chip_prompt in _TONIGHT_PROMPTS.items():
+                # Same late-binding closure pattern as the Recent rows below:
+                # run_turn is defined later in this page function but resolved
+                # at click time.
+                ui.label(chip_label).classes("plex-chip").on(
+                    "click", lambda _, p=chip_prompt: run_turn(p)
+                )
+        # "Unwatched", not "Library": the media_items collection only holds
+        # the unwatched catalog (plex-ingest's staging filters watched movies
+        # out), so every stat below is a count of the recommendable shelf.
+        ui.label("Unwatched").classes("plex-sec-label")
+        stats_container = ui.column().classes("plex-stats w-full")
         with ui.row().classes("plex-sb-bottom w-full"):
             spoiler_switch = ui.switch("Spoiler-free mode", value=state["spoiler_free"])
 
@@ -146,7 +229,17 @@ async def index(client: Client) -> None:
 
     with ui.column().classes("plex-main w-full items-stretch"):
         transcript = ui.column().classes("plex-transcript w-full")
-        with ui.row().classes("plex-input-row w-full items-center"):
+        # Real sibling element, not a ::before on the input row: a fixed-
+        # position pseudo-element with a negative z-index nested inside a
+        # sticky-positioned (stacking-context-forming) parent is exactly the
+        # class of construct Safari has mis-rendered here before (see the
+        # poster key-light history in app/adapters/poster_accent.py) — it
+        # painted the fade over the input instead of behind it. A plain
+        # element ordered before the row and given a lower, non-negative
+        # z-index needs no cross-stacking-context assumptions.
+        ui.element("div").classes("plex-input-fade")
+        input_row = ui.row().classes("plex-input-row w-full items-center")
+        with input_row:
             chat_input = (
                 ui.input(placeholder="Ask for a movie recommendation...")
                 .classes("plex-chat-input flex-grow")
@@ -160,15 +253,62 @@ async def index(client: Client) -> None:
                     chat_input, "value", backward=lambda v: bool(v and v.strip())
                 )
 
-    def render_stored_messages() -> None:
+    async def render_stored_messages() -> None:
         transcript.clear()
         for msg in messages:
             if msg["role"] == "assistant":
                 body = render_chat_row(transcript, "assistant", "")
                 items = [_dict_to_item(d) for d in msg.get("items", [])]
-                render_recommendations(body, msg["content"], items)
+                accents = {i.imdb_id: await _accent_for(i) for i in items}
+                if msg.get("is_surprise"):
+                    render_surprise_results(body, msg["content"], items, accents)
+                else:
+                    render_recommendations(body, msg["content"], items, accents)
             else:
                 render_chat_row(transcript, "user", msg["content"])
+
+    def _is_surprise_conversation() -> bool:
+        return any(m.get("is_surprise") for m in messages)
+
+    def _is_read_only_view() -> bool:
+        # Two reasons the text input has no business being on screen:
+        # - Viewing a Recent conversation: resuming it isn't implemented (no
+        #   LLM/RAG history was restored for it), so it's a snapshot, not
+        #   something you can continue.
+        # - A "Surprise me" turn: it comes from the diversity recommender,
+        #   which never joins the RAG chat history, so typing a follow-up
+        #   into a conversation that already contains one would produce a
+        #   reply the model has no memory of the surprise turn. The two
+        #   features haven't been reasoned through together yet.
+        return state["viewing_recent_id"] is not None or _is_surprise_conversation()
+
+    def _apply_input_lock() -> None:
+        locked = _is_read_only_view()
+        input_row.set_visibility(not locked)
+        if locked:
+            chat_input.set_value("")
+            chat_input.disable()
+        else:
+            chat_input.enable()
+
+    def render_library_stats(items: list[MediaItem]) -> None:
+        """Counts of the unwatched shelf, derived from what the contract
+        actually stores (see docs/vector-store-contract.md) — no series or
+        sync-age rows because neither exists in the collection's payload."""
+        stats_container.clear()
+        rows = [
+            ("Movies", len(items)),
+            (
+                "In 4K",
+                sum(1 for i in items if i.video_resolution is VideoResolution.R4K),
+            ),
+            ("Via streaming", sum(1 for i in items if i.source_platform is not None)),
+        ]
+        with stats_container:
+            for name, count in rows:
+                with ui.row().classes("plex-stat w-full justify-between items-center"):
+                    ui.label(name).classes("plex-stat-name")
+                    ui.label(f"{count:,}").classes("plex-stat-value")
 
     def render_recent_list() -> None:
         recent_container.clear()
@@ -189,11 +329,24 @@ async def index(client: Client) -> None:
         # st.session_state.messages. Only "New conversation" clears it.
         await current_service()  # warm the cache for the new setting
 
+    # Bumped by _start_new_conversation() below. A turn (run_turn/on_surprise)
+    # snapshots this right before it starts touching shared state and checks
+    # it again right before persisting/rendering its result — if "New
+    # conversation"/a Recent click has bumped it in the meantime, the turn
+    # discards its own outcome instead of appending onto (or re-locking) a
+    # view the user has already left. Blocking those two handlers on `busy`
+    # instead (an earlier attempt at this fix) made them silently do nothing
+    # for as long as a turn's trailing persistence/poster-fetch work was
+    # still running — up to a couple of seconds — with zero feedback, which
+    # read as "New conversation is broken."
+    state["turn_token"] = 0
+
     def _start_new_conversation() -> None:
         state["conversation_id"] = str(uuid.uuid4())
         app.storage.tab["conversation_id"] = state["conversation_id"]
         state["viewing_recent_id"] = None
         app.storage.tab["viewing_recent_id"] = None
+        state["turn_token"] += 1
 
     async def on_new_conversation() -> None:
         service, _, _ = await current_service()
@@ -201,8 +354,15 @@ async def index(client: Client) -> None:
         messages.clear()
         app.storage.tab["messages"] = messages
         _start_new_conversation()
-        render_stored_messages()
+        await render_stored_messages()
         render_recent_list()
+        _apply_input_lock()
+        # Whatever turn was in flight no longer has anything to finish for
+        # this view — its result will be discarded via turn_token once it
+        # does resolve (see run_turn/on_surprise), so don't leave the UI
+        # looking busy on its behalf.
+        busy["value"] = False
+        surprise_btn.enable()
 
     async def on_load_recent(conversation_id: str) -> None:
         conv = _store.get(conversation_id)
@@ -211,7 +371,12 @@ async def index(client: Client) -> None:
             return
         messages.clear()
         messages.extend(
-            {"role": m.role.value, "content": m.content, "items": m.items}
+            {
+                "role": m.role.value,
+                "content": m.content,
+                "items": m.items,
+                "is_surprise": m.is_surprise,
+            }
             for m in conv.messages
         )
         app.storage.tab["messages"] = messages
@@ -219,8 +384,14 @@ async def index(client: Client) -> None:
         app.storage.tab["conversation_id"] = conversation_id
         state["viewing_recent_id"] = conversation_id
         app.storage.tab["viewing_recent_id"] = conversation_id
-        render_stored_messages()
+        state["turn_token"] += 1
+        await render_stored_messages()
         render_recent_list()
+        _apply_input_lock()
+        # Same reasoning as on_new_conversation: don't leave the UI busy on
+        # behalf of a turn this snapshot has already superseded.
+        busy["value"] = False
+        surprise_btn.enable()
 
     async def _persist_current_conversation(
         latest_question: str, latest_answer: str, titler: ConversationTitler
@@ -250,6 +421,7 @@ async def index(client: Client) -> None:
                     role=MessageRole(m["role"]),
                     content=m["content"],
                     items=m.get("items", []),
+                    is_surprise=m.get("is_surprise", False),
                 )
                 for m in messages
             ],
@@ -261,30 +433,37 @@ async def index(client: Client) -> None:
 
     busy = {"value": False}
 
-    async def on_send() -> None:
+    async def run_turn(prompt: str) -> None:
+        """One full chat turn — shared by typed input and the Tonight chips."""
         if busy["value"]:
             return
-        prompt = (chat_input.value or "").strip()
-        if not prompt:
-            return
         busy["value"] = True
-        chat_input.set_value("")
         chat_input.disable()
 
         service, media_repo, titler = await current_service()
 
-        # Sending while a past Recent conversation is loaded starts a
-        # brand-new conversation rather than appending onto that snapshot's
-        # transcript — resuming isn't supported (no LLM/RAG context was
-        # restored for it), so continuing to type into a stale snapshot
-        # would produce a transcript that looks continuous but whose earlier
-        # turns the model never actually saw this session.
-        if state["viewing_recent_id"] is not None:
+        # Sending while a past Recent conversation is loaded, or while the
+        # live conversation already has a Surprise-me turn in it, starts a
+        # brand-new conversation rather than appending onto that transcript.
+        # Neither the Recent snapshot (no LLM/RAG context was restored for
+        # it) nor a Surprise-me turn (the diversity recommender never joins
+        # the RAG chat history) has anything a continued chat could build
+        # on — this is a defense-in-depth fallback for the Tonight chips,
+        # which stay clickable even while the text input itself is hidden
+        # (see _is_read_only_view).
+        if _is_read_only_view():
             service.reset_history()
             messages.clear()
             _start_new_conversation()
-            render_stored_messages()
+            await render_stored_messages()
             render_recent_list()
+
+        # Captured after the reset above (which is this turn's own, if it
+        # happened) so it reflects the view this turn is actually building
+        # on. Checked again below, after the awaits that let "New
+        # conversation"/a Recent click run concurrently and move on without
+        # this turn — see the comment on state["turn_token"].
+        my_token = state["turn_token"]
 
         messages.append({"role": "user", "content": prompt})
         render_chat_row(transcript, "user", prompt)
@@ -295,15 +474,34 @@ async def index(client: Client) -> None:
 
         streamed = await service.chat_with_items_stream(prompt, media_repo)
 
+        if state["turn_token"] != my_token:
+            # Superseded while the LLM call was in flight — assistant_body
+            # was already removed from the transcript by the reset that did
+            # it, so there's nothing left to render into or lock.
+            return
+
         spinner.delete()
         top_pick = True
         async for event in streamed.events:
-            with assistant_body:
-                if isinstance(event, TextDelta):
+            if state["turn_token"] != my_token:
+                break
+            if isinstance(event, TextDelta):
+                with assistant_body:
                     ui.markdown(event.text).classes("plex-msg-prose")
-                elif isinstance(event, CardReady) and event.item is not None:
-                    render_movie_card(event.item, event.body_md, top_pick=top_pick)
-                    top_pick = False
+            elif isinstance(event, CardReady) and event.item is not None:
+                # Accent resolved before entering the container context — no
+                # awaits inside a `with <element>:` block.
+                accent = await _accent_for(event.item)
+                if state["turn_token"] != my_token:
+                    break
+                with assistant_body:
+                    render_movie_card(
+                        event.item, event.body_md, top_pick=top_pick, accent=accent
+                    )
+                top_pick = False
+
+        if state["turn_token"] != my_token:
+            return
 
         answer, items = streamed.answer, streamed.items
         messages.append(
@@ -317,9 +515,18 @@ async def index(client: Client) -> None:
 
         await _persist_current_conversation(prompt, answer, titler)
         render_recent_list()
+        _apply_input_lock()
 
-        chat_input.enable()
         busy["value"] = False
+
+    async def on_send() -> None:
+        if busy["value"]:
+            return
+        prompt = (chat_input.value or "").strip()
+        if not prompt:
+            return
+        chat_input.set_value("")
+        await run_turn(prompt)
 
     async def on_surprise() -> None:
         if busy["value"]:
@@ -329,13 +536,23 @@ async def index(client: Client) -> None:
 
         _, _, titler = await current_service()
 
-        if state["viewing_recent_id"] is not None:
+        # Same reset as run_turn's read-only-view fallback (see
+        # _is_read_only_view): a past Recent snapshot has nothing to build
+        # on, and neither does a conversation that already holds a
+        # Surprise-me turn — each pull from the diversity recommender is
+        # independent, so without this a second click just kept appending
+        # more picks onto the same turn instead of starting a new one.
+        if _is_read_only_view():
             chat_service, _, _ = await current_service()
             chat_service.reset_history()
             messages.clear()
             _start_new_conversation()
-            render_stored_messages()
+            await render_stored_messages()
             render_recent_list()
+
+        # See the comment on state["turn_token"] and the matching capture in
+        # run_turn.
+        my_token = state["turn_token"]
 
         prompt = "Surprise me"
         messages.append({"role": "user", "content": prompt})
@@ -374,23 +591,32 @@ async def index(client: Client) -> None:
                         else "Nothing left to recommend right now — try again later."
                     )
 
+        if state["turn_token"] != my_token:
+            # Superseded while the diversity lookup was in flight —
+            # assistant_body was already removed from the transcript by the
+            # reset that did it, so there's nothing left to render into or
+            # lock. surprise_btn stays as the superseding reset left it.
+            return
+
         spinner.delete()
-        with assistant_body:
-            ui.markdown(answer).classes("plex-msg-prose")
-            for i, item in enumerate(items):
-                render_movie_card(item, item.description or "", top_pick=(i == 0))
+        accents = {i.imdb_id: await _accent_for(i) for i in items}
+        if state["turn_token"] != my_token:
+            return
+        render_surprise_results(assistant_body, answer, items, accents)
 
         messages.append(
             {
                 "role": "assistant",
                 "content": answer,
                 "items": [_item_to_dict(i) for i in items],
+                "is_surprise": True,
             }
         )
         app.storage.tab["messages"] = messages
 
         await _persist_current_conversation(prompt, answer, titler)
         render_recent_list()
+        _apply_input_lock()
 
         surprise_btn.enable()
         busy["value"] = False
@@ -404,11 +630,14 @@ async def index(client: Client) -> None:
     with transcript:
         loading = ui.spinner(size="lg")
     chat_input.disable()
-    await current_service()  # warm the initial cache (spinner while it builds)
+    # Warm the initial cache (spinner while it builds); the media repo also
+    # feeds the sidebar's library snapshot.
+    _, media_repo, _ = await current_service()
     loading.delete()
-    render_stored_messages()
+    render_library_stats(media_repo.all_items())
+    await render_stored_messages()
     render_recent_list()
-    chat_input.enable()
+    _apply_input_lock()
 
 
 def main() -> None:
@@ -418,6 +647,15 @@ def main() -> None:
     imported above, which `_persist_current_conversation` calls as
     `run.io_bound(...)` (DuckDB has no async driver).
     """
+    # Fail fast, before the server ever starts accepting connections, rather
+    # than letting a browser tab's first page load be where a dead Qdrant
+    # container is discovered (see app/repositories/vector_store.py).
+    try:
+        ensure_qdrant_reachable(QDRANT_URL, QDRANT_COLLECTION)
+    except QdrantUnavailableError as e:
+        print(f"\n{e}\n", file=sys.stderr)
+        raise SystemExit(1) from None
+
     ui.run(
         title="Plex Movie Assistant",
         dark=True,

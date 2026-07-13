@@ -1,5 +1,5 @@
 import enum
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 class VideoResolution(enum.Enum):
@@ -13,6 +13,17 @@ class VideoResolution(enum.Enum):
     R720 = "720"
     R1080 = "1080"
     R4K = "4k"
+
+
+class HdrFormat(enum.Enum):
+    """Mirrors plex-ingest's lib/media_source.py by hand, like VideoResolution.
+    A movie carries a *list* of these, not a single value: a Dolby Vision
+    dual-layer file is also HDR10-compatible, so membership isn't mutually
+    exclusive. `HDR` is one flat bucket for every HDR transfer function Plex
+    reports (HDR10, HDR10+, HLG) — see docs/vector-store-contract.md."""
+
+    HDR = "HDR"
+    DV = "DV"
 
 
 class StreamingSource(enum.Enum):
@@ -35,4 +46,5 @@ class MediaItem:
     description: str | None = None
     thumb_url: str | None = None
     video_resolution: VideoResolution | None = None
+    hdr_formats: list[HdrFormat] = field(default_factory=list)
     source_platform: StreamingSource | None = None

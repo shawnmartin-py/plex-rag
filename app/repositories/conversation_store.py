@@ -28,7 +28,12 @@ def _row_to_conversation(row: tuple[str, str | None, str, str, str]) -> Conversa
         updated_at=updated_at,
         messages=[
             ConversationMessage(
-                role=MessageRole(m["role"]), content=m["content"], items=m["items"]
+                role=MessageRole(m["role"]),
+                content=m["content"],
+                items=m["items"],
+                # .get() with a default: rows saved before is_surprise existed
+                # survive a reload after a redeploy.
+                is_surprise=m.get("is_surprise", False),
             )
             for m in raw_messages
         ],
@@ -63,7 +68,12 @@ class ConversationStore:
         rather than just limiting what's read."""
         messages_json = json.dumps(
             [
-                {"role": m.role.value, "content": m.content, "items": m.items}
+                {
+                    "role": m.role.value,
+                    "content": m.content,
+                    "items": m.items,
+                    "is_surprise": m.is_surprise,
+                }
                 for m in conversation.messages
             ]
         )
