@@ -2,23 +2,22 @@ from collections.abc import AsyncIterator, Callable
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
-from app.domain.ports import SectionReady, StreamEvent, TextDelta
+from app.domain.ports import ChatMessage, SectionReady, StreamEvent, TextDelta
 from app.domain.recommender import CoverageReport, StreamedAnswer
 from app.models.media_item import MediaItem
 from app.services.recommendation import CardReady, ConversationalRecommendationService
 
 
 def _capture_history_side_effect(
-    snapshots: list[list[BaseMessage]],
+    snapshots: list[list[ChatMessage]],
 ) -> Callable[..., tuple[str, list[str], CoverageReport | None]]:
     """Records a snapshot of the history seen on each call, then returns a
     canned answer — lets tests assert what history the recommender was
     actually invoked with on each turn."""
 
     def side_effect(
-        question: str, history: list[BaseMessage], **_: object
+        question: str, history: list[ChatMessage], **_: object
     ) -> tuple[str, list[str], CoverageReport | None]:
         snapshots.append(list(history))
         return "here are some films", [], None
@@ -39,7 +38,7 @@ def service(recommender: MagicMock) -> ConversationalRecommendationService:
 
 
 async def test_first_chat_passes_empty_history(recommender: MagicMock) -> None:
-    snapshots: list[list[BaseMessage]] = []
+    snapshots: list[list[ChatMessage]] = []
     recommender.recommend.side_effect = _capture_history_side_effect(snapshots)
     service = ConversationalRecommendationService(recommender)
     await service.chat("recommend a thriller")
@@ -57,7 +56,7 @@ async def test_first_chat_returns_answer(
 async def test_second_chat_includes_first_exchange_in_history(
     recommender: MagicMock,
 ) -> None:
-    snapshots: list[list[BaseMessage]] = []
+    snapshots: list[list[ChatMessage]] = []
     recommender.recommend.side_effect = _capture_history_side_effect(snapshots)
     service = ConversationalRecommendationService(recommender)
     await service.chat("recommend a thriller")
@@ -65,14 +64,14 @@ async def test_second_chat_includes_first_exchange_in_history(
 
     second_call_history = snapshots[1]
     assert len(second_call_history) == 2
-    assert isinstance(second_call_history[0], HumanMessage)
+    assert second_call_history[0].role == "human"
     assert second_call_history[0].content == "recommend a thriller"
-    assert isinstance(second_call_history[1], AIMessage)
+    assert second_call_history[1].role == "ai"
     assert second_call_history[1].content == "here are some films"
 
 
 async def test_history_grows_with_each_turn(recommender: MagicMock) -> None:
-    snapshots: list[list[BaseMessage]] = []
+    snapshots: list[list[ChatMessage]] = []
     recommender.recommend.side_effect = _capture_history_side_effect(snapshots)
     service = ConversationalRecommendationService(recommender)
     await service.chat("first question")
@@ -100,7 +99,7 @@ async def test_history_contains_ai_response_from_recommender(
     await service.chat("question two")
 
     _, history = recommender.recommend.call_args[0]
-    ai_messages = [m for m in history if isinstance(m, AIMessage)]
+    ai_messages = [m for m in history if m.role == "ai"]
     assert ai_messages[0].content == "my custom answer"
 
 

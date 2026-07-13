@@ -2,15 +2,15 @@ from collections.abc import AsyncIterator
 from unittest.mock import MagicMock
 
 import pytest
-from langchain_core.documents import Document
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
 from app.domain.ports import (
     CandidateRetriever,
+    ChatMessage,
     QueryRewriter,
     RecommendationCard,
     RecommendationGenerator,
     RecommendationResponse,
+    RetrievedChunk,
     SectionReady,
     StreamEvent,
     TextDelta,
@@ -30,7 +30,7 @@ def make_doc(
     title: str,
     embedding_type: str = "synopsis",
     section: str | None = None,
-) -> Document:
+) -> RetrievedChunk:
     metadata = {
         "imdb_id": imdb_id,
         "title": title,
@@ -39,7 +39,7 @@ def make_doc(
     }
     if section is not None:
         metadata["section"] = section
-    return Document(
+    return RetrievedChunk(
         page_content=f"Content for {title} ({embedding_type}/{section})",
         metadata=metadata,
     )
@@ -199,21 +199,21 @@ def test_format_card_heading_uses_given_index() -> None:
 class StubRetriever(CandidateRetriever):
     name = "stub"
 
-    def __init__(self, docs: list[Document]) -> None:
+    def __init__(self, docs: list[RetrievedChunk]) -> None:
         self._docs = docs
 
-    async def retrieve(self, query: str) -> list[Document]:
+    async def retrieve(self, query: str) -> list[RetrievedChunk]:
         return self._docs
 
 
 class StubRewriter(QueryRewriter):
-    async def rewrite(self, question: str, history: list[BaseMessage]) -> str:
+    async def rewrite(self, question: str, history: list[ChatMessage]) -> str:
         return f"rewritten: {question}"
 
 
 class StubGenerator(RecommendationGenerator):
     async def generate(
-        self, question: str, context: str, history: list[BaseMessage]
+        self, question: str, context: str, history: list[ChatMessage]
     ) -> RecommendationResponse:
         return RecommendationResponse(
             cards=[
@@ -222,7 +222,7 @@ class StubGenerator(RecommendationGenerator):
         )
 
     async def stream(
-        self, question: str, context: str, history: list[BaseMessage]
+        self, question: str, context: str, history: list[ChatMessage]
     ) -> AsyncIterator[StreamEvent]:
         yield SectionReady(imdb_id="tt001", body_md=f"answer for: {question}")
 
@@ -243,23 +243,25 @@ class EventStubGenerator(RecommendationGenerator):
         self._result = result if result is not None else RecommendationResponse()
 
     async def generate(
-        self, question: str, context: str, history: list[BaseMessage]
+        self, question: str, context: str, history: list[ChatMessage]
     ) -> RecommendationResponse:
         return self._result
 
     async def stream(
-        self, question: str, context: str, history: list[BaseMessage]
+        self, question: str, context: str, history: list[ChatMessage]
     ) -> AsyncIterator[StreamEvent]:
         for event in self._events:
             yield event
 
 
 @pytest.fixture
-def single_doc() -> Document:
+def single_doc() -> RetrievedChunk:
     return make_doc("tt001", "Parasite")
 
 
-async def test_recommend_with_no_history_skips_rewriter(single_doc: Document) -> None:
+async def test_recommend_with_no_history_skips_rewriter(
+    single_doc: RetrievedChunk,
+) -> None:
     rewriter = MagicMock(spec=QueryRewriter)
     recommender = MovieRecommender(
         [StubRetriever([single_doc])], StubGenerator(), rewriter
@@ -268,11 +270,16 @@ async def test_recommend_with_no_history_skips_rewriter(single_doc: Document) ->
     rewriter.rewrite.assert_not_called()
 
 
-async def test_recommend_with_history_calls_rewriter(single_doc: Document) -> None:
+async def test_recommend_with_history_calls_rewriter(
+    single_doc: RetrievedChunk,
+) -> None:
     rewriter = StubRewriter()
     generator = MagicMock(spec=RecommendationGenerator)
     generator.generate.return_value = RecommendationResponse()
-    history = [HumanMessage(content="hi"), AIMessage(content="hello")]
+    history = [
+        ChatMessage(role="human", content="hi"),
+        ChatMessage(role="ai", content="hello"),
+    ]
     recommender = MovieRecommender([StubRetriever([single_doc])], generator, rewriter)
     await recommender.recommend("something slower", history=history)
     generator.generate.assert_called_once()
@@ -318,7 +325,7 @@ async def test_recommend_all_sections_for_same_movie_reach_generator() -> None:
 
 
 async def test_recommend_passes_original_question_to_generator(
-    single_doc: Document,
+    single_doc: RetrievedChunk,
 ) -> None:
     generator = MagicMock(spec=RecommendationGenerator)
     generator.generate.return_value = RecommendationResponse()
@@ -330,7 +337,9 @@ async def test_recommend_passes_original_question_to_generator(
     assert question == "my question"
 
 
-async def test_recommend_returns_answer_built_from_cards(single_doc: Document) -> None:
+async def test_recommend_returns_answer_built_from_cards(
+    single_doc: RetrievedChunk,
+) -> None:
     generator = MagicMock(spec=RecommendationGenerator)
     generator.generate.return_value = RecommendationResponse(
         intro="Here's a pick:",
@@ -346,7 +355,7 @@ async def test_recommend_returns_answer_built_from_cards(single_doc: Document) -
     assert mentioned_ids == ["tt001"]
 
 
-async def test_recommend_drops_hallucinated_imdb_id(single_doc: Document) -> None:
+async def test_recommend_drops_hallucinated_imdb_id(single_doc: RetrievedChunk) -> None:
     generator = MagicMock(spec=RecommendationGenerator)
     generator.generate.return_value = RecommendationResponse(
         cards=[
@@ -363,7 +372,7 @@ async def test_recommend_drops_hallucinated_imdb_id(single_doc: Document) -> Non
 
 
 async def test_recommend_uses_closing_note_when_nothing_fits(
-    single_doc: Document,
+    single_doc: RetrievedChunk,
 ) -> None:
     generator = MagicMock(spec=RecommendationGenerator)
     generator.generate.return_value = RecommendationResponse(
@@ -377,7 +386,9 @@ async def test_recommend_uses_closing_note_when_nothing_fits(
     assert mentioned_ids == []
 
 
-async def test_recommend_stream_yields_section_ready(single_doc: Document) -> None:
+async def test_recommend_stream_yields_section_ready(
+    single_doc: RetrievedChunk,
+) -> None:
     generator = EventStubGenerator(
         [SectionReady(imdb_id="tt001", body_md="Great pick.")]
     )
@@ -417,7 +428,7 @@ async def test_recommend_stream_yields_multiple_sections_in_order() -> None:
 
 
 async def test_recommend_stream_yields_intro_as_text_delta(
-    single_doc: Document,
+    single_doc: RetrievedChunk,
 ) -> None:
     generator = EventStubGenerator(
         [
@@ -437,7 +448,9 @@ async def test_recommend_stream_yields_intro_as_text_delta(
     assert isinstance(events[1], SectionReady)
 
 
-async def test_recommend_stream_drops_hallucinated_card(single_doc: Document) -> None:
+async def test_recommend_stream_drops_hallucinated_card(
+    single_doc: RetrievedChunk,
+) -> None:
     generator = EventStubGenerator(
         [
             SectionReady(imdb_id="tt999", body_md="Invented."),
@@ -458,7 +471,7 @@ async def test_recommend_stream_drops_hallucinated_card(single_doc: Document) ->
 
 
 async def test_recommend_stream_sets_answer_with_synthesized_heading(
-    single_doc: Document,
+    single_doc: RetrievedChunk,
 ) -> None:
     generator = EventStubGenerator(
         [SectionReady(imdb_id="tt001", body_md="Great pick.")]
@@ -476,7 +489,7 @@ async def test_recommend_stream_sets_answer_with_synthesized_heading(
 
 
 async def test_recommend_stream_answer_includes_text_deltas_in_order(
-    single_doc: Document,
+    single_doc: RetrievedChunk,
 ) -> None:
     generator = EventStubGenerator(
         [
@@ -498,7 +511,9 @@ async def test_recommend_stream_answer_includes_text_deltas_in_order(
     )
 
 
-async def test_recommend_omits_coverage_report_by_default(single_doc: Document) -> None:
+async def test_recommend_omits_coverage_report_by_default(
+    single_doc: RetrievedChunk,
+) -> None:
     generator = MagicMock(spec=RecommendationGenerator)
     generator.generate.return_value = RecommendationResponse(
         cards=[RecommendationCard(imdb_id="tt001", body_md="Great pick.")]
@@ -510,7 +525,9 @@ async def test_recommend_omits_coverage_report_by_default(single_doc: Document) 
     assert coverage is None
 
 
-async def test_recommend_verbose_builds_coverage_report(single_doc: Document) -> None:
+async def test_recommend_verbose_builds_coverage_report(
+    single_doc: RetrievedChunk,
+) -> None:
     generator = MagicMock(spec=RecommendationGenerator)
     generator.generate.return_value = RecommendationResponse(
         cards=[RecommendationCard(imdb_id="tt001", body_md="Great pick.")]

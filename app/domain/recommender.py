@@ -3,13 +3,12 @@ import random
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 
-from langchain_core.documents import Document
-from langchain_core.messages import BaseMessage
-
 from app.domain.ports import (
     CandidateRetriever,
+    ChatMessage,
     QueryRewriter,
     RecommendationGenerator,
+    RetrievedChunk,
     SectionReady,
     StreamEvent,
 )
@@ -37,9 +36,9 @@ class CoverageReport:
 
 
 def _group_docs(
-    named_sets: list[tuple[str, list[Document]]],
-) -> tuple[dict[str, list[Document]], dict[str, set[str]]]:
-    grouped: dict[str, list[Document]] = {}
+    named_sets: list[tuple[str, list[RetrievedChunk]]],
+) -> tuple[dict[str, list[RetrievedChunk]], dict[str, set[str]]]:
+    grouped: dict[str, list[RetrievedChunk]] = {}
     sources: dict[str, set[str]] = {}
     seen: set[tuple[str, str | None, str | None]] = set()
     for retriever_name, docs in named_sets:
@@ -57,8 +56,8 @@ def _group_docs(
     return grouped, sources
 
 
-def _format_grouped(grouped: dict[str, list[Document]]) -> str:
-    def sort_key(doc: Document) -> tuple[int, int]:
+def _format_grouped(grouped: dict[str, list[RetrievedChunk]]) -> str:
+    def sort_key(doc: RetrievedChunk) -> tuple[int, int]:
         is_enriched = 1 if doc.metadata.get("embedding_type") == "enriched" else 0
         return (is_enriched, _SECTION_ORDER.get(doc.metadata.get("section", ""), 99))
 
@@ -75,7 +74,7 @@ def _format_grouped(grouped: dict[str, list[Document]]) -> str:
 
 
 def _format_card_heading(
-    index: int, imdb_id: str, grouped: dict[str, list[Document]]
+    index: int, imdb_id: str, grouped: dict[str, list[RetrievedChunk]]
 ) -> str:
     """Synthesize the numbered heading the model no longer writes itself
     (title/year live on the structured schema's context, not its output) —
@@ -89,7 +88,7 @@ def _format_card_heading(
 
 
 def _build_coverage_report(
-    grouped: dict[str, list[Document]],
+    grouped: dict[str, list[RetrievedChunk]],
     sources: dict[str, set[str]],
     mentioned_ids: list[str],
     retriever_names: list[str],
@@ -139,7 +138,7 @@ class MovieRecommender:
         self._rewriter = rewriter
 
     async def recommend(
-        self, question: str, history: list[BaseMessage], verbose: bool = False
+        self, question: str, history: list[ChatMessage], verbose: bool = False
     ) -> tuple[str, list[str], CoverageReport | None]:
         standalone = (
             await self._rewriter.rewrite(question, history) if history else question
@@ -176,7 +175,7 @@ class MovieRecommender:
         return answer, mentioned_ids, coverage
 
     async def recommend_stream(
-        self, question: str, history: list[BaseMessage]
+        self, question: str, history: list[ChatMessage]
     ) -> StreamedAnswer:
         """Streaming counterpart to `recommend`, minus `verbose` coverage
         reporting (which needs the full response up front, so it stays on the

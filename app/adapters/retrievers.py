@@ -9,7 +9,15 @@ from langchain_qdrant import QdrantVectorStore
 from pydantic import BaseModel
 from qdrant_client.models import FieldCondition, Filter, MatchValue
 
-from app.domain.ports import CandidateRetriever
+from app.domain.ports import CandidateRetriever, RetrievedChunk
+
+
+def _to_chunk(doc: Document) -> RetrievedChunk:
+    """Converts at the LangChain boundary — the domain layer's
+    `CandidateRetriever` port speaks `RetrievedChunk`, not LangChain's
+    `Document`, so every retriever converts its LangChain-sourced results
+    here before returning them."""
+    return RetrievedChunk(page_content=doc.page_content, metadata=doc.metadata)
 
 
 class DirectSynopsisRetriever(CandidateRetriever):
@@ -32,11 +40,12 @@ class DirectSynopsisRetriever(CandidateRetriever):
             ]
         )
 
-    async def retrieve(self, query: str) -> list[Document]:
+    async def retrieve(self, query: str) -> list[RetrievedChunk]:
         vector = (await self._embeddings.aembed_documents([query]))[0]
-        return await self._vector_store.asimilarity_search_by_vector(
+        docs = await self._vector_store.asimilarity_search_by_vector(
             vector, k=self._k, filter=self._filter
         )
+        return [_to_chunk(d) for d in docs]
 
 
 class HyDEVectorRetriever(CandidateRetriever):
@@ -82,12 +91,13 @@ class HyDEVectorRetriever(CandidateRetriever):
             ]
         )
 
-    async def retrieve(self, query: str) -> list[Document]:
+    async def retrieve(self, query: str) -> list[RetrievedChunk]:
         hypothetical = await self._chain.ainvoke({"question": query})
         vector = (await self._embeddings.aembed_documents([hypothetical]))[0]
-        return await self._vector_store.asimilarity_search_by_vector(
+        docs = await self._vector_store.asimilarity_search_by_vector(
             vector, k=self._k, filter=self._filter
         )
+        return [_to_chunk(d) for d in docs]
 
 
 class TitleSelection(BaseModel):
@@ -125,7 +135,7 @@ class LLMKnowledgeRetriever(CandidateRetriever):
         self._movie_list = movie_list
         self._doc_by_title = doc_by_title
 
-    async def retrieve(self, query: str) -> list[Document]:
+    async def retrieve(self, query: str) -> list[RetrievedChunk]:
         # with_structured_output's return type is broadened to
         # `dict[str, Any] | BaseModel` to cover non-Pydantic schemas; passing a
         # Pydantic class with the default include_raw=False always yields an
@@ -137,7 +147,7 @@ class LLMKnowledgeRetriever(CandidateRetriever):
             ),
         )
         return [
-            self._doc_by_title[t.lower()]
+            _to_chunk(self._doc_by_title[t.lower()])
             for t in selection.titles
             if t.lower() in self._doc_by_title
         ]
@@ -169,8 +179,9 @@ class LLMEnrichmentRetriever(CandidateRetriever):
             else None
         )
 
-    async def retrieve(self, query: str) -> list[Document]:
+    async def retrieve(self, query: str) -> list[RetrievedChunk]:
         vector = (await self._embeddings.aembed_documents([query]))[0]
-        return await self._vector_store.asimilarity_search_by_vector(
+        docs = await self._vector_store.asimilarity_search_by_vector(
             vector, k=self._k, filter=self._filter
         )
+        return [_to_chunk(d) for d in docs]

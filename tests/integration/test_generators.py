@@ -3,7 +3,6 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableSequence
 
 from app.adapters.generators import (
@@ -12,6 +11,7 @@ from app.adapters.generators import (
     GeminiRecommendationGenerator,
 )
 from app.domain.ports import (
+    ChatMessage,
     RecommendationCard,
     RecommendationResponse,
     SectionReady,
@@ -113,10 +113,13 @@ async def test_rewriter_passes_history(
     rewriter: tuple[GeminiQueryRewriter, MagicMock],
 ) -> None:
     instance, mock_chain = rewriter
-    history = [HumanMessage(content="first"), AIMessage(content="response")]
+    history = [
+        ChatMessage(role="human", content="first"),
+        ChatMessage(role="ai", content="response"),
+    ]
     await instance.rewrite("follow-up", history=history)
     call_args = mock_chain.ainvoke.call_args[0][0]
-    assert call_args["chat_history"] == history
+    assert call_args["chat_history"] == [("human", "first"), ("ai", "response")]
 
 
 async def test_rewriter_passes_empty_history(
@@ -164,10 +167,13 @@ async def test_generator_passes_history(
     generator: tuple[GeminiRecommendationGenerator, MagicMock],
 ) -> None:
     instance, mock_chain = generator
-    history = [HumanMessage(content="hi"), AIMessage(content="hello")]
+    history = [
+        ChatMessage(role="human", content="hi"),
+        ChatMessage(role="ai", content="hello"),
+    ]
     await instance.generate("question", "context", history=history)
     call_args = mock_chain.ainvoke.call_args[0][0]
-    assert call_args["chat_history"] == history
+    assert call_args["chat_history"] == [("human", "hi"), ("ai", "hello")]
 
 
 # --- GeminiRecommendationGenerator spoiler_free flag ---

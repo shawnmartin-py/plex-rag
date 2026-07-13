@@ -2,11 +2,11 @@ from collections.abc import AsyncIterator
 from typing import cast
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import BaseMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from app.domain.ports import (
+    ChatMessage,
     ConversationTitler,
     QueryRewriter,
     RecommendationGenerator,
@@ -15,6 +15,14 @@ from app.domain.ports import (
     StreamEvent,
     TextDelta,
 )
+
+
+def _to_langchain_history(history: list[ChatMessage]) -> list[tuple[str, str]]:
+    """Converts at the LangChain boundary — `ChatPromptTemplate` accepts
+    (role, content) tuples for a `MessagesPlaceholder` just as readily as
+    `BaseMessage` instances, so the domain layer never needs to import
+    LangChain's message types."""
+    return [(m.role, m.content) for m in history]
 
 
 class GeminiQueryRewriter(QueryRewriter):
@@ -36,8 +44,10 @@ class GeminiQueryRewriter(QueryRewriter):
     def __init__(self, llm: BaseChatModel) -> None:
         self._chain = self._prompt | llm | StrOutputParser()
 
-    async def rewrite(self, question: str, history: list[BaseMessage]) -> str:
-        return await self._chain.ainvoke({"input": question, "chat_history": history})
+    async def rewrite(self, question: str, history: list[ChatMessage]) -> str:
+        return await self._chain.ainvoke(
+            {"input": question, "chat_history": _to_langchain_history(history)}
+        )
 
 
 class GeminiConversationTitler(ConversationTitler):
@@ -137,7 +147,7 @@ class GeminiRecommendationGenerator(RecommendationGenerator):
         self._chain = prompt | llm.with_structured_output(RecommendationResponse)
 
     async def generate(
-        self, question: str, context: str, history: list[BaseMessage]
+        self, question: str, context: str, history: list[ChatMessage]
     ) -> RecommendationResponse:
         # with_structured_output's return type is broadened to
         # `dict[str, Any] | BaseModel` to cover non-Pydantic schemas; passing a
@@ -146,12 +156,16 @@ class GeminiRecommendationGenerator(RecommendationGenerator):
         return cast(
             RecommendationResponse,
             await self._chain.ainvoke(
-                {"input": question, "context": context, "chat_history": history}
+                {
+                    "input": question,
+                    "context": context,
+                    "chat_history": _to_langchain_history(history),
+                }
             ),
         )
 
     async def stream(
-        self, question: str, context: str, history: list[BaseMessage]
+        self, question: str, context: str, history: list[ChatMessage]
     ) -> AsyncIterator[StreamEvent]:
         """`with_structured_output(...).astream()` yields progressively larger,
         fully-validated `RecommendationResponse` instances as Gemini writes the
@@ -169,7 +183,11 @@ class GeminiRecommendationGenerator(RecommendationGenerator):
         intro_flushed = False
         last: RecommendationResponse | None = None
         async for partial in self._chain.astream(
-            {"input": question, "context": context, "chat_history": history}
+            {
+                "input": question,
+                "context": context,
+                "chat_history": _to_langchain_history(history),
+            }
         ):
             last = cast(RecommendationResponse, partial)
             if not intro_flushed and last.intro and last.cards:

@@ -2,25 +2,44 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Protocol
+from typing import Any, Literal, Protocol
 
-from langchain_core.documents import Document
-from langchain_core.messages import BaseMessage
 from pydantic import BaseModel
 
 from app.models.media_item import MediaItem
+
+
+@dataclass(frozen=True)
+class RetrievedChunk:
+    """One retrieved passage and its metadata — the domain-native stand-in for
+    LangChain's `Document`, so the domain layer isn't coupled to LangChain
+    types. Adapters that actually talk to LangChain (`app/adapters/retrievers.py`)
+    convert to/from `Document` right at that boundary."""
+
+    page_content: str
+    metadata: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class ChatMessage:
+    """One turn of conversation history — the domain-native stand-in for
+    LangChain's `BaseMessage`. Adapters that call into LangChain
+    (`app/adapters/generators.py`) convert this at that boundary."""
+
+    role: Literal["human", "ai"]
+    content: str
 
 
 class CandidateRetriever(ABC):
     name: str
 
     @abstractmethod
-    async def retrieve(self, query: str) -> list[Document]: ...
+    async def retrieve(self, query: str) -> list[RetrievedChunk]: ...
 
 
 class QueryRewriter(ABC):
     @abstractmethod
-    async def rewrite(self, question: str, history: list[BaseMessage]) -> str: ...
+    async def rewrite(self, question: str, history: list[ChatMessage]) -> str: ...
 
 
 class ConversationTitler(ABC):
@@ -72,12 +91,12 @@ StreamEvent = TextDelta | SectionReady
 class RecommendationGenerator(ABC):
     @abstractmethod
     async def generate(
-        self, question: str, context: str, history: list[BaseMessage]
+        self, question: str, context: str, history: list[ChatMessage]
     ) -> RecommendationResponse: ...
 
     @abstractmethod
     def stream(
-        self, question: str, context: str, history: list[BaseMessage]
+        self, question: str, context: str, history: list[ChatMessage]
     ) -> AsyncIterator[StreamEvent]:
         """Yield discrete events as the answer completes, rather than raw text
         deltas — a `TextDelta` for a finished block of prose, a

@@ -1,9 +1,7 @@
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
-
-from app.domain.ports import MediaItemLookup, SectionReady, TextDelta
+from app.domain.ports import ChatMessage, MediaItemLookup, SectionReady, TextDelta
 from app.domain.recommender import CoverageReport, MovieRecommender
 from app.models.media_item import MediaItem
 
@@ -37,7 +35,7 @@ class StreamedChatAnswer:
 class ConversationalRecommendationService:
     def __init__(self, recommender: MovieRecommender) -> None:
         self._recommender = recommender
-        self._history: list[BaseMessage] = []
+        self._history: list[ChatMessage] = []
 
     async def chat(
         self, question: str, verbose: bool = False
@@ -45,16 +43,16 @@ class ConversationalRecommendationService:
         answer, _, coverage = await self._recommender.recommend(
             question, self._history, verbose=verbose
         )
-        self._history.append(HumanMessage(content=question))
-        self._history.append(AIMessage(content=answer))
+        self._history.append(ChatMessage(role="human", content=question))
+        self._history.append(ChatMessage(role="ai", content=answer))
         return answer, coverage
 
     async def chat_with_items(
         self, question: str, media_repo: MediaItemLookup
     ) -> tuple[str, list[MediaItem]]:
         answer, imdb_ids, _ = await self._recommender.recommend(question, self._history)
-        self._history.append(HumanMessage(content=question))
-        self._history.append(AIMessage(content=answer))
+        self._history.append(ChatMessage(role="human", content=question))
+        self._history.append(ChatMessage(role="ai", content=answer))
         items = [media_repo.get_by_id(imdb_id) for imdb_id in imdb_ids]
         return answer, [i for i in items if i is not None]
 
@@ -75,8 +73,8 @@ class ConversationalRecommendationService:
                     yield CardReady(item=item, body_md=event.body_md)
                 else:
                     yield event
-            self._history.append(HumanMessage(content=question))
-            self._history.append(AIMessage(content=streamed.answer))
+            self._history.append(ChatMessage(role="human", content=question))
+            self._history.append(ChatMessage(role="ai", content=streamed.answer))
             result.answer = streamed.answer
             result.items = items
 

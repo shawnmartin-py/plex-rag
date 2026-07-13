@@ -1,7 +1,6 @@
 import json
 
 import pytest
-from langchain_core.messages import BaseMessage
 from langchain_qdrant import QdrantVectorStore
 
 from app.adapters.generators import GeminiQueryRewriter, GeminiRecommendationGenerator
@@ -10,7 +9,7 @@ from app.adapters.retrievers import (
     LLMEnrichmentRetriever,
     LLMKnowledgeRetriever,
 )
-from app.domain.ports import RecommendationCard, RecommendationResponse
+from app.domain.ports import ChatMessage, RecommendationCard, RecommendationResponse
 from app.domain.recommender import MovieRecommender
 from app.services.recommendation import ConversationalRecommendationService
 from tests.e2e.conftest import TEST_DOCS, StubEmbeddings, StubLLM
@@ -130,7 +129,7 @@ async def test_knowledge_retriever_contributes_docs_to_context(
 
     class CapturingGenerator(GeminiRecommendationGenerator):
         async def generate(
-            self, question: str, context: str, history: list[BaseMessage]
+            self, question: str, context: str, history: list[ChatMessage]
         ) -> RecommendationResponse:
             captured_contexts.append(context)
             return RecommendationResponse(
