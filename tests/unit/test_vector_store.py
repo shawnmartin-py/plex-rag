@@ -6,6 +6,7 @@ from qdrant_client.models import Distance, VectorParams
 from app.repositories.vector_store import (
     QdrantUnavailableError,
     connect_vector_store,
+    imdb_id_exists,
     load_synopsis_documents,
     load_synopsis_vectors,
     load_watch_history_points,
@@ -127,6 +128,42 @@ def test_load_synopsis_vectors_raises_on_non_flat_vector() -> None:
 
     with pytest.raises(TypeError, match="tt0001"):
         load_synopsis_vectors(mock_vector_store, "media_items")
+
+
+# --- imdb_id_exists ---
+
+
+def test_imdb_id_exists_true_when_count_positive() -> None:
+    mock_client = make_mock_client()
+    mock_client.count.return_value.count = 1
+    with patch("app.repositories.vector_store.QdrantClient", return_value=mock_client):
+        assert imdb_id_exists("http://localhost:6333", "media_items", "tt0111161")
+
+
+def test_imdb_id_exists_false_when_count_zero() -> None:
+    mock_client = make_mock_client()
+    mock_client.count.return_value.count = 0
+    with patch("app.repositories.vector_store.QdrantClient", return_value=mock_client):
+        assert not imdb_id_exists("http://localhost:6333", "media_items", "tt0000000")
+
+
+def test_imdb_id_exists_filters_by_imdb_id() -> None:
+    mock_client = make_mock_client()
+    mock_client.count.return_value.count = 0
+    with patch("app.repositories.vector_store.QdrantClient", return_value=mock_client):
+        imdb_id_exists("http://localhost:6333", "media_items", "tt0111161")
+
+    call_kwargs = mock_client.count.call_args.kwargs
+    assert call_kwargs["collection_name"] == "media_items"
+    assert call_kwargs["count_filter"].must[0].key == "metadata.imdb_id"
+    assert call_kwargs["count_filter"].must[0].match.value == "tt0111161"
+
+
+def test_imdb_id_exists_raises_when_collection_missing() -> None:
+    mock_client = make_mock_client(exists=False)
+    with patch("app.repositories.vector_store.QdrantClient", return_value=mock_client):
+        with pytest.raises(QdrantUnavailableError, match="does not exist"):
+            imdb_id_exists("http://localhost:6333", "media_items", "tt0111161")
 
 
 # --- load_watch_history_points ---

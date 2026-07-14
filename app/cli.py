@@ -39,6 +39,28 @@ def surprise() -> None:
 
 
 @app.command()
+def check_imdb(
+    imdb_id: str = typer.Argument(..., help="IMDb ID to look up, e.g. tt0111161."),
+) -> None:
+    """Check whether an IMDb ID is present in the Qdrant media_items collection.
+
+    Prints "true" or "false" and exits 0 if found, 1 if not — so it can be used
+    in shell conditionals as well as scripted for its output.
+    """
+    from app.config import QDRANT_COLLECTION, QDRANT_URL
+    from app.repositories.vector_store import QdrantUnavailableError, imdb_id_exists
+
+    try:
+        exists = imdb_id_exists(QDRANT_URL, QDRANT_COLLECTION, imdb_id)
+    except QdrantUnavailableError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(2) from None
+
+    typer.echo("true" if exists else "false")
+    raise typer.Exit(0 if exists else 1)
+
+
+@app.command()
 def clear_history() -> None:
     """Wipe the web UI's recent-conversations history."""
     from app.config import CONVERSATIONS_DB_PATH

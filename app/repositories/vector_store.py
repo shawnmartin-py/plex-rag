@@ -144,6 +144,26 @@ def load_synopsis_vectors(
     return result
 
 
+def imdb_id_exists(url: str, collection_name: str, imdb_id: str) -> bool:
+    """Cheap existence check for a single imdb_id, used by the CLI's `check-imdb`
+    command to answer "is this movie already in the collection" without the
+    embeddings client `connect_vector_store` requires. Validates reachability
+    the same way `connect_vector_store`/`ensure_qdrant_reachable` do, so a dead
+    Qdrant container fails fast with the same clear message rather than a bare
+    False."""
+    client = _connect_and_validate(url, collection_name)
+    count = client.count(
+        collection_name=collection_name,
+        count_filter=Filter(
+            must=[
+                FieldCondition(key="metadata.imdb_id", match=MatchValue(value=imdb_id))
+            ]
+        ),
+        exact=True,
+    )
+    return count.count > 0
+
+
 def load_watch_history_points(
     vector_store: QdrantVectorStore, collection_name: str
 ) -> list[WatchedEmbedding]:

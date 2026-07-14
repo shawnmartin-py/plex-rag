@@ -136,6 +136,10 @@ plex-rag chat --verbose      # show retriever source coverage after each respons
 
 # Surprise me: recommend something different from your recent watch history
 plex-rag surprise
+
+# Check whether an IMDb ID is in the media_items Qdrant collection
+# Prints "true"/"false" and exits 0/1 accordingly (2 if Qdrant is unreachable)
+plex-rag check-imdb tt0111161
 ```
 
 ## Development
@@ -154,7 +158,7 @@ make check              # pre-commit + test — the same gate CI runs
 
 ```
 app/
-├── cli.py                      # Typer CLI entrypoint (chat, surprise, clear-history)
+├── cli.py                      # Typer CLI entrypoint (chat, surprise, clear-history, check-imdb)
 ├── rag.py                      # CLI chat entrypoint: input loop over build_recommender_service
 ├── surprise.py                 # CLI surprise-me entrypoint: input loop over build_diversity_service
 ├── bootstrap.py                # build_recommender_service / build_diversity_service: composition roots (CLI + NiceGUI)
