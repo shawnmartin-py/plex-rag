@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help install chat web test test-unit test-integration test-e2e typecheck check pre-commit clear-history
+.PHONY: help install chat web test test-unit test-integration test-e2e typecheck check pre-commit clear-history eval-faithfulness
 
 help: ## Show this list of commands
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
@@ -37,3 +37,6 @@ check: pre-commit test ## Run pre-commit hooks (lint, format, mypy) and tests â€
 
 pre-commit: ## Run all pre-commit hooks against every file
 	pre-commit run --all-files
+
+eval-faithfulness: ## Run the RAGAS faithfulness eval against the golden dataset (needs GOOGLE_API_KEY, makes real Gemini calls, not part of `make check`/CI â€” see evals/README.md)
+	uv run --group eval python -m evals.faithfulness_eval
