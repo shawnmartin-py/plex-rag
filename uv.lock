@@ -1648,6 +1648,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "qdrant-client" },
+    { name = "tenacity" },
     { name = "typer" },
 ]
 
@@ -1678,6 +1679,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "pydantic-settings", specifier = ">=2.13.1" },
     { name = "qdrant-client", specifier = ">=1.18.0" },
+    { name = "tenacity", specifier = ">=9.1.4" },
     { name = "typer", specifier = ">=0.15.0" },
 ]
 

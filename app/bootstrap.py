@@ -8,6 +8,13 @@ from langchain_google_genai import (
     HarmBlockThreshold,
     HarmCategory,
 )
+from langchain_google_genai._common import GoogleGenerativeAIError
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential_jitter,
+)
 
 from app.adapters.generators import (
     GeminiConversationTitler,
@@ -47,6 +54,26 @@ _SAFETY_OFF = {
 }
 
 
+@retry(
+    retry=retry_if_exception_type(GoogleGenerativeAIError),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential_jitter(initial=1, max=10),
+    reraise=True,
+)
+async def _aembed_documents_with_retry(
+    inner: Embeddings, texts: list[str]
+) -> list[list[float]]:
+    """`GoogleGenerativeAIEmbeddings`, unlike `ChatGoogleGenerativeAI`, doesn't
+    configure `HttpRetryOptions` on its underlying `google-genai` client — a
+    single transient error (rate limit, brief network blip) reaches
+    `MovieRecommender._retrieve_context`'s `asyncio.gather` fan-out and kills
+    the whole turn, since every retriever embeds the query on every turn.
+    `GoogleGenerativeAIError` is a flat wrapper with no status code attached,
+    so this can't distinguish retryable (429/5xx) from permanent errors —
+    a capped, jittered retry is still a net win over zero retries."""
+    return await inner.aembed_documents(texts)
+
+
 class _DedupingEmbeddings(Embeddings):
     """Wraps an Embeddings instance so concurrent aembed_documents([text]) calls
     for the identical single-text query are coalesced into one API call.
@@ -69,7 +96,7 @@ class _DedupingEmbeddings(Embeddings):
 
     async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
         if len(texts) != 1:
-            return await self._inner.aembed_documents(texts)
+            return await _aembed_documents_with_retry(self._inner, texts)
         text = texts[0]
         task = self._inflight.get(text)
         if task is None:
@@ -82,7 +109,7 @@ class _DedupingEmbeddings(Embeddings):
                 self._inflight.pop(text, None)
 
     async def _embed_one(self, text: str) -> list[float]:
-        return (await self._inner.aembed_documents([text]))[0]
+        return (await _aembed_documents_with_retry(self._inner, [text]))[0]
 
 
 def build_recommender_service(
