@@ -49,17 +49,17 @@ def test_band_colors_reject_non_image_bytes() -> None:
         boosted_band_colors(b"not an image")
 
 
-def test_poster_accents_caches_failures_without_refetching(
+async def test_poster_accents_caches_failures_without_refetching(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     accents = PosterAccents()
     calls = {"n": 0}
 
-    def failing_extract(url: str) -> tuple[str, ...] | None:
+    async def failing_extract(url: str) -> tuple[str, ...] | None:
         calls["n"] += 1
         return None
 
     monkeypatch.setattr(accents, "_extract", failing_extract)
-    assert accents.accent_for("http://example.invalid/p.jpg") is None
-    assert accents.accent_for("http://example.invalid/p.jpg") is None
+    assert await accents.accent_for("http://example.invalid/p.jpg") is None
+    assert await accents.accent_for("http://example.invalid/p.jpg") is None
     assert calls["n"] == 1

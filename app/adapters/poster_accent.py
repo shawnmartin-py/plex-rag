@@ -1,15 +1,22 @@
 import colorsys
 import io
 import logging
-import urllib.request
 from typing import cast
 from urllib.parse import urlsplit
 
+import httpx
 from PIL import Image, UnidentifiedImageError
 
 logger = logging.getLogger(__name__)
 
 _FETCH_TIMEOUT_S = 3.0
+
+# Named rather than a literal tuple in the `except` clause below: ruff-format
+# 0.15.21 has a formatter bug that strips the parens from a multi-item tuple
+# written directly in an `except (...)` clause, producing invalid syntax
+# (`except A, B, C:`, a SyntaxError in Python 3). Revisit once that's fixed
+# upstream.
+_POSTER_FETCH_ERRORS = (httpx.HTTPError, OSError, ValueError, UnidentifiedImageError)
 
 # Mirrors the boost the old CSS key light applied to its sampled poster strip
 # (filter: saturate(1.8) brightness(2.6)) so the extracted accent matches the
@@ -69,33 +76,36 @@ class PosterAccents:
 
     One poster fetch per distinct URL, then cached for the process lifetime —
     including negative results, so an unreachable poster is not re-fetched on
-    every render. Blocking: call via ``run.io_bound`` from the UI event loop.
+    every render. Shares one ``httpx.AsyncClient``, also cached for the
+    process lifetime, across all fetches.
     """
 
     def __init__(self) -> None:
         self._cache: dict[str, tuple[str, ...] | None] = {}
+        self._client = httpx.AsyncClient(timeout=_FETCH_TIMEOUT_S)
 
-    def accent_for(self, thumb_url: str) -> tuple[str, ...] | None:
+    async def accent_for(self, thumb_url: str) -> tuple[str, ...] | None:
         if thumb_url in self._cache:
             return self._cache[thumb_url]
-        accent = self._extract(thumb_url)
+        accent = await self._extract(thumb_url)
         self._cache[thumb_url] = accent
         return accent
 
-    def _extract(self, thumb_url: str) -> tuple[str, ...] | None:
+    async def _extract(self, thumb_url: str) -> tuple[str, ...] | None:
         # Plex-hosted poster URLs are always http(s); reject anything else
-        # before it reaches urlopen so a malformed/malicious payload can't
-        # make the server open a file:// or other local/unexpected scheme.
+        # before it reaches the client so a malformed/malicious payload
+        # can't make the server request a file:// or other local/unexpected
+        # scheme.
         if urlsplit(thumb_url).scheme not in ("http", "https"):
             logger.warning(
                 "Refusing to fetch poster with non-http scheme: %s", thumb_url
             )
             return None
         try:
-            with urllib.request.urlopen(thumb_url, timeout=_FETCH_TIMEOUT_S) as resp:  # noqa: S310
-                data = resp.read()
-            return boosted_band_colors(data)
-        except OSError, ValueError, UnidentifiedImageError:
+            resp = await self._client.get(thumb_url)
+            resp.raise_for_status()
+            return boosted_band_colors(resp.content)
+        except _POSTER_FETCH_ERRORS:
             # No accent is a graceful state (cards render without a key
             # light) — a broken poster URL must never break the chat turn.
             logger.warning("Could not extract poster accent from %s", thumb_url)

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import sys
 import uuid
@@ -65,10 +66,10 @@ _poster_accents = PosterAccents()
 
 
 async def _accent_for(item: MediaItem) -> tuple[str, ...] | None:
-    """Key-light colors for a card, fetched/cached off the event loop."""
+    """Key-light colors for a card, fetched/cached via the shared async client."""
     if not item.thumb_url:
         return None
-    return await run.io_bound(_poster_accents.accent_for, item.thumb_url)
+    return await _poster_accents.accent_for(item.thumb_url)
 
 
 # "Tonight" sidebar chips: label shown on the chip -> the chat message a
@@ -259,7 +260,10 @@ async def index(client: Client) -> None:
             if msg["role"] == "assistant":
                 body = render_chat_row(transcript, "assistant", "")
                 items = [_dict_to_item(d) for d in msg.get("items", [])]
-                accents = {i.imdb_id: await _accent_for(i) for i in items}
+                accent_results = await asyncio.gather(*(_accent_for(i) for i in items))
+                accents = dict(
+                    zip((i.imdb_id for i in items), accent_results, strict=True)
+                )
                 if msg.get("is_surprise"):
                     render_surprise_results(body, msg["content"], items, accents)
                 else:
@@ -599,7 +603,8 @@ async def index(client: Client) -> None:
             return
 
         spinner.delete()
-        accents = {i.imdb_id: await _accent_for(i) for i in items}
+        accent_results = await asyncio.gather(*(_accent_for(i) for i in items))
+        accents = dict(zip((i.imdb_id for i in items), accent_results, strict=True))
         if state["turn_token"] != my_token:
             return
         render_surprise_results(assistant_body, answer, items, accents)
