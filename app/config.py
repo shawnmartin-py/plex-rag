@@ -1,29 +1,50 @@
-import os
 from pathlib import Path
 
-# Qdrant vector store — plex-ingest owns writes; the recommender connects
-# read-only over the network. See docs/vector-store-contract.md.
-QDRANT_URL = os.environ.get("QDRANT_URL", "http://localhost:6333")
-QDRANT_COLLECTION = os.environ.get("QDRANT_COLLECTION", "media_items")
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Second, separate collection for the diversity/"surprise me" recommender — see
-# docs/vector-store-contract.md's `watch_history` collection section. Optional:
-# the feature disables itself gracefully if this collection doesn't exist yet
-# (see app/bootstrap.py:build_diversity_service), so an unset/missing collection
-# doesn't break the main chat feature.
-QDRANT_WATCH_HISTORY_COLLECTION = os.environ.get(
-    "QDRANT_WATCH_HISTORY_COLLECTION", "watch_history"
+_DEFAULT_CONVERSATIONS_DB_PATH = str(
+    Path(__file__).resolve().parent.parent / "data" / "conversations.duckdb"
 )
 
-# Encrypts NiceGUI's per-browser-tab storage (nicegui_app/); any local value
-# works since nothing sensitive is stored, but it must stay stable across
-# restarts or open tabs get a fresh (empty) transcript.
-NICEGUI_STORAGE_SECRET = os.environ.get("NICEGUI_STORAGE_SECRET", "plex-rag-dev-secret")
 
-# DuckDB file backing the web UI's Recent-conversations sidebar list — the only
-# read-write store plex-rag owns itself (unlike the read-only Qdrant connection
-# above). Directory is created on demand by ConversationStore, not committed.
-CONVERSATIONS_DB_PATH = os.environ.get(
-    "CONVERSATIONS_DB_PATH",
-    str(Path(__file__).resolve().parent.parent / "data" / "conversations.duckdb"),
-)
+class Settings(BaseSettings):
+    """Single schema for plex-rag's env-var configuration. Validates at
+    construction (process startup) instead of wherever a bad value is first
+    used, several call frames deep."""
+
+    model_config = SettingsConfigDict(case_sensitive=True)
+
+    # Qdrant vector store — plex-ingest owns writes; the recommender connects
+    # read-only over the network. See docs/vector-store-contract.md.
+    QDRANT_URL: str = Field(default="http://localhost:6333", min_length=1)
+    QDRANT_COLLECTION: str = Field(default="media_items", min_length=1)
+
+    # Second, separate collection for the diversity/"surprise me" recommender —
+    # see docs/vector-store-contract.md's `watch_history` collection section.
+    # Optional: the feature disables itself gracefully if this collection
+    # doesn't exist yet (see app/bootstrap.py:build_diversity_service), so an
+    # unset/missing collection doesn't break the main chat feature.
+    QDRANT_WATCH_HISTORY_COLLECTION: str = Field(default="watch_history", min_length=1)
+
+    # Encrypts NiceGUI's per-browser-tab storage (nicegui_app/); any local
+    # value works since nothing sensitive is stored, but it must stay stable
+    # across restarts or open tabs get a fresh (empty) transcript.
+    NICEGUI_STORAGE_SECRET: str = Field(default="plex-rag-dev-secret", min_length=1)
+
+    # DuckDB file backing the web UI's Recent-conversations sidebar list — the
+    # only read-write store plex-rag owns itself (unlike the read-only Qdrant
+    # connection above). Directory is created on demand by ConversationStore,
+    # not committed.
+    CONVERSATIONS_DB_PATH: str = Field(
+        default=_DEFAULT_CONVERSATIONS_DB_PATH, min_length=1
+    )
+
+
+settings = Settings()
+
+QDRANT_URL = settings.QDRANT_URL
+QDRANT_COLLECTION = settings.QDRANT_COLLECTION
+QDRANT_WATCH_HISTORY_COLLECTION = settings.QDRANT_WATCH_HISTORY_COLLECTION
+NICEGUI_STORAGE_SECRET = settings.NICEGUI_STORAGE_SECRET
+CONVERSATIONS_DB_PATH = settings.CONVERSATIONS_DB_PATH
