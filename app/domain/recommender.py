@@ -8,6 +8,7 @@ from app.domain.ports import (
     ChatMessage,
     QueryRewriter,
     RecommendationGenerator,
+    RecommendationResponse,
     RetrievedChunk,
     SectionReady,
     StreamEvent,
@@ -87,6 +88,29 @@ def _format_card_heading(
     return f"{index}. **{title}** ({year})"
 
 
+def _build_answer(
+    result: RecommendationResponse, grouped: dict[str, list[RetrievedChunk]]
+) -> tuple[str, list[str]]:
+    """Turns a generator's structured response into the plain-text `answer`
+    string plus the imdb_ids it actually recommended — dropping any card
+    whose imdb_id the model invented rather than copying from context (same
+    shape as LLMKnowledgeRetriever's title filter in
+    app/adapters/retrievers.py). Shared by `recommend` and
+    `recommend_with_context`."""
+    cards = [c for c in result.cards if c.imdb_id in grouped]
+    mentioned_ids = [c.imdb_id for c in cards]
+
+    parts: list[str] = []
+    if result.intro:
+        parts.append(result.intro)
+    for i, card in enumerate(cards, start=1):
+        heading = _format_card_heading(i, card.imdb_id, grouped)
+        parts.append(f"{heading}\n{card.body_md}")
+    if result.closing_note:
+        parts.append(result.closing_note)
+    return "\n\n".join(parts), mentioned_ids
+
+
 def _build_coverage_report(
     grouped: dict[str, list[RetrievedChunk]],
     sources: dict[str, set[str]],
@@ -137,9 +161,13 @@ class MovieRecommender:
         self._generator = generator
         self._rewriter = rewriter
 
-    async def recommend(
-        self, question: str, history: list[ChatMessage], verbose: bool = False
-    ) -> tuple[str, list[str], CoverageReport | None]:
+    async def _retrieve_context(
+        self, question: str, history: list[ChatMessage]
+    ) -> tuple[str, dict[str, list[RetrievedChunk]], dict[str, set[str]]]:
+        """Rewrite (if there's history) → fan every retriever out concurrently
+        → dedupe/group by film → format into the context blob the generator
+        sees. Shared by `recommend`, `recommend_stream`, and
+        `recommend_with_context`."""
         standalone = (
             await self._rewriter.rewrite(question, history) if history else question
         )
@@ -149,30 +177,38 @@ class MovieRecommender:
         named_sets = list(zip((r.name for r in self._retrievers), results, strict=True))
         grouped, sources = _group_docs(named_sets)
         context = _format_grouped(grouped)
-        result = await self._generator.generate(question, context, history)
-        # Drop any card whose imdb_id the model invented rather than copying
-        # from context — same shape as LLMKnowledgeRetriever's title filter
-        # in app/adapters/retrievers.py.
-        cards = [c for c in result.cards if c.imdb_id in grouped]
-        mentioned_ids = [c.imdb_id for c in cards]
+        return context, grouped, sources
 
-        parts: list[str] = []
-        if result.intro:
-            parts.append(result.intro)
-        for i, card in enumerate(cards, start=1):
-            heading = _format_card_heading(i, card.imdb_id, grouped)
-            parts.append(f"{heading}\n{card.body_md}")
-        if result.closing_note:
-            parts.append(result.closing_note)
-        answer = "\n\n".join(parts)
+    async def recommend(
+        self, question: str, history: list[ChatMessage], verbose: bool = False
+    ) -> tuple[str, list[str], CoverageReport | None]:
+        context, grouped, sources = await self._retrieve_context(question, history)
+        result = await self._generator.generate(question, context, history)
+        answer, mentioned_ids = _build_answer(result, grouped)
 
         coverage = None
         if verbose:
-            retriever_names = [name for name, _ in named_sets]
+            retriever_names = [r.name for r in self._retrievers]
             coverage = _build_coverage_report(
                 grouped, sources, mentioned_ids, retriever_names
             )
         return answer, mentioned_ids, coverage
+
+    async def recommend_with_context(
+        self, question: str, history: list[ChatMessage]
+    ) -> tuple[str, list[str], str]:
+        """Same generation path as `recommend` (minus verbose coverage
+        reporting), plus the formatted context string the generator actually
+        saw — the one piece `recommend` doesn't expose. `recommend` doesn't
+        need it (callers only care about the answer), but RAGAS's Faithfulness
+        metric does: it scores whether `answer`'s claims are grounded in
+        `context`, so evals/ needs the true retrieved grounding for this exact
+        turn rather than a separately re-run, possibly-drifted approximation.
+        See evals/README.md."""
+        context, grouped, _sources = await self._retrieve_context(question, history)
+        result = await self._generator.generate(question, context, history)
+        answer, mentioned_ids = _build_answer(result, grouped)
+        return answer, mentioned_ids, context
 
     async def recommend_stream(
         self, question: str, history: list[ChatMessage]
@@ -185,15 +221,7 @@ class MovieRecommender:
         dropping any card whose imdb_id isn't a real candidate and building
         the plain-text `answer` (with headings synthesized from `grouped`) as
         events go by."""
-        standalone = (
-            await self._rewriter.rewrite(question, history) if history else question
-        )
-        results = await asyncio.gather(
-            *(r.retrieve(standalone) for r in self._retrievers)
-        )
-        named_sets = list(zip((r.name for r in self._retrievers), results, strict=True))
-        grouped, _sources = _group_docs(named_sets)
-        context = _format_grouped(grouped)
+        context, grouped, _sources = await self._retrieve_context(question, history)
 
         async def _events() -> AsyncIterator[StreamEvent]:
             answer_parts: list[str] = []
