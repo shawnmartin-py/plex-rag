@@ -114,6 +114,23 @@ def test_get_by_id_treats_unrecognized_video_resolution_as_none() -> None:
     assert item.video_resolution is None
 
 
+def test_get_by_id_parses_runtime_minutes() -> None:
+    repo = QdrantMediaItems([make_synopsis_doc(runtime_minutes=132)])
+    item = repo.get_by_id("tt6751668")
+    assert item is not None
+    assert item.runtime_minutes == 132
+
+
+def test_get_by_id_defaults_missing_runtime_minutes_to_none() -> None:
+    """Points written before the field joined the contract simply lack it, same as
+    hdr_formats above — and a streaming-placeholder movie whose OMDb lookup hasn't
+    resolved carries an explicit `null`, which reads back the same way."""
+    repo = QdrantMediaItems([make_synopsis_doc()])
+    item = repo.get_by_id("tt6751668")
+    assert item is not None
+    assert item.runtime_minutes is None
+
+
 def test_multiple_documents_are_all_indexed() -> None:
     repo = QdrantMediaItems(
         [make_synopsis_doc("tt0001", title="A"), make_synopsis_doc("tt0002", title="B")]

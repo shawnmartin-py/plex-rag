@@ -123,6 +123,7 @@ def _item_to_dict(item: MediaItem) -> dict[str, Any]:
         else None,
         "hdr_formats": [fmt.value for fmt in item.hdr_formats],
         "source_platform": item.source_platform.value if item.source_platform else None,
+        "runtime_minutes": item.runtime_minutes,
     }
 
 

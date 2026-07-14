@@ -48,3 +48,4 @@ class MediaItem:
     video_resolution: VideoResolution | None = None
     hdr_formats: list[HdrFormat] = field(default_factory=list)
     source_platform: StreamingSource | None = None
+    runtime_minutes: int | None = None

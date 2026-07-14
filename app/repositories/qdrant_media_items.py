@@ -49,6 +49,7 @@ def _media_item_from_metadata(metadata: dict[str, Any]) -> MediaItem:
         ),
         hdr_formats=_hdr_formats_or_empty(metadata.get("hdr_formats")),
         source_platform=_enum_or_none(StreamingSource, metadata.get("source_platform")),
+        runtime_minutes=metadata.get("runtime_minutes"),
     )
 
 

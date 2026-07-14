@@ -11,7 +11,10 @@ from nicegui_app.components import (
 
 
 def make_item(
-    imdb_id: str, title: str, hdr_formats: list[HdrFormat] | None = None
+    imdb_id: str,
+    title: str,
+    hdr_formats: list[HdrFormat] | None = None,
+    runtime_minutes: int | None = None,
 ) -> MediaItem:
     return MediaItem(
         imdb_id=imdb_id,
@@ -22,6 +25,7 @@ def make_item(
         content_rating="R",
         genres=["Drama"],
         hdr_formats=hdr_formats or [],
+        runtime_minutes=runtime_minutes,
     )
 
 
@@ -208,6 +212,50 @@ async def test_render_recommendations_renders_hdr_format_badges() -> None:
         await user.open("/")
         await user.should_see(marker="hdr-badge-hdr")
         await user.should_see(marker="hdr-badge-dv")
+
+
+@pytest.mark.anyio
+async def test_render_recommendations_renders_runtime() -> None:
+    response = "1. **A** (2019)\nBody A."
+    items = [make_item("tt1", "A", runtime_minutes=104)]
+
+    async def root() -> None:
+        container = ui.column()
+        render_recommendations(container, response, items)
+
+    async with user_simulation(root=root) as user:
+        await user.open("/")
+        await user.should_see(content="1h 44m")
+
+
+@pytest.mark.anyio
+async def test_render_recommendations_omits_runtime_when_unresolved() -> None:
+    """A streaming-placeholder movie whose OMDb lookup hasn't resolved carries
+    `runtime_minutes=None` — the card must not show a blank/garbled runtime."""
+    response = "1. **A** (2019)\nBody A."
+    items = [make_item("tt1", "A", runtime_minutes=None)]
+
+    async def root() -> None:
+        container = ui.column()
+        render_recommendations(container, response, items)
+
+    async with user_simulation(root=root) as user:
+        await user.open("/")
+        await user.should_not_see(marker="plex-runtime")
+
+
+@pytest.mark.anyio
+async def test_render_recommendations_renders_content_rating_cert() -> None:
+    response = "1. **A** (2019)\nBody A."
+    items = [make_item("tt1", "A")]
+
+    async def root() -> None:
+        container = ui.column()
+        render_recommendations(container, response, items)
+
+    async with user_simulation(root=root) as user:
+        await user.open("/")
+        await user.should_see(content="R")
 
 
 @pytest.mark.anyio

@@ -5,6 +5,7 @@ from nicegui import ui
 from nicegui.element import Element
 
 from app.formatting.media_badge import PlatformBadge, describe_media_badge
+from app.formatting.runtime import format_runtime
 from app.formatting.sections import (
     break_out_run_in_labels,
     parse_sections,
@@ -109,6 +110,13 @@ def render_movie_card(
                             f'href="{href}" target="_blank" rel="noopener">'
                             f'<span class="plex-star">★</span> '
                             f"{item.imdb_rating}</a>"
+                        )
+                    runtime = format_runtime(item.runtime_minutes)
+                    if runtime:
+                        ui.label(runtime).classes("plex-runtime").mark("plex-runtime")
+                    if item.content_rating:
+                        ui.label(item.content_rating).classes("plex-cert").mark(
+                            "plex-cert"
                         )
                     badge = describe_media_badge(item)
                     if isinstance(badge, PlatformBadge):

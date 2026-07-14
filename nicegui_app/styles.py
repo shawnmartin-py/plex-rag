@@ -436,6 +436,33 @@ h1, h2, h3, h4, h5, h6 {
     font-size: 13px !important;
     color: var(--plex-ink-2) !important;
 }
+.plex-runtime {
+    font-size: 12.5px !important;
+    font-weight: 600 !important;
+    color: var(--plex-ink-2) !important;
+    font-variant-numeric: tabular-nums !important;
+}
+/* Content rating: a bordered "certificate" box in Rockwell, deliberately a
+   different register from the pill-shaped quality badges next to it — a
+   classification stamp, not another data pill. Rockwell is a system font
+   (Monotype, not freely embeddable) — this degrades to a generic slab serif
+   if unavailable, never to sans-serif, so the "certificate" read survives
+   even without Rockwell installed. */
+.plex-cert {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    min-width: 28px !important;
+    height: 22px !important;
+    padding: 0 6px !important;
+    border: 1.5px solid rgba(255, 255, 255, 0.8) !important;
+    border-radius: 4px !important;
+    font-family: Rockwell, "Rockwell Nova", "Roboto Slab", serif !important;
+    font-size: 12.5px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.01em !important;
+    color: var(--plex-ink) !important;
+}
 .plex-platform-badge {
     height: 18px !important;
     width: auto !important;
