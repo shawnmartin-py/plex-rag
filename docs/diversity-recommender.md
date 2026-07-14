@@ -31,39 +31,58 @@ Plex's watch-history API actually returns, why a short description is
 sufficient embedding input).
 
 `app/bootstrap.py:build_diversity_service` is a separate composition root
-from `build_recommender_service`, not folded into it: the `watch_history`
-collection is genuinely optional (depends on the plex-ingest pipeline
-above having run) in a way `media_items` isn't, and a missing collection
-here must disable this one feature, not crash the whole app.
+from `build_recommender_service`, not folded into it, because a missing
+`watch_history` collection must disable this one feature rather than crash
+the whole app — see that function's own docstring for the mechanics.
 
 ## Outlier wildcard (2026-07-12)
 
-Candidates beyond `band_high_percentile` (the true distance outliers) were
-originally discarded outright — see `_distance_band`'s reasoning for why the
-band excludes them (likely vector-space noise as often as genuinely great
-contrasting picks). That has a real downside: a title that's a stable,
-extreme outlier relative to the whole library could sit in that excluded
-zone on essentially every call regardless of what the user watches next,
-and never surface through this feature.
+Candidates beyond `band_high_percentile` (the true distance outliers)
+aren't discarded outright: each `recommend()` call has an independent
+`outlier_wildcard_probability` (default 0.15) chance of pulling one extra
+pick from that excluded tail into the pool before MMR narrows to `k` —
+added so a stable, extreme-outlier title isn't permanently excluded from
+ever surfacing. Full mechanics and why it's a flat coin flip rather than a
+blended softmax weight: `DiversityRecommender`'s class docstring in
+`app/domain/diversity.py` — not duplicated here.
 
-Each `recommend()` call now has an independent
-`outlier_wildcard_probability` (default 0.15) chance of adding one extra
-pick sampled from that excluded tail into the pool before MMR narrows to
-the final `k`. Deliberately implemented as a flat per-call coin flip
-rather than blending the tail into the same distance-scaled softmax as the
-core band with a dampened weight — the latter was tried first and rejected
-because the softmax's exponential term scales with the *raw* distance gap,
-so a sufficiently extreme outlier can dominate regardless of how small its
-weight is. A flat probability keeps "how rare" independent of how extreme
-any given outlier's distance happens to be. A wildcard added to the pool
-still isn't guaranteed a final slot — MMR only picks it if it wins on
-relevance/diversity against the rest of the pool.
+## MMR weight tuning (2026-07-13)
+
+`mmr_diversity_weight` (`DiversityRecommender.__init__`,
+`app/domain/diversity.py`) was raised from its original 0.5 to 0.6. At 0.5,
+a chain of picks within one `recommend()` call could each look locally
+diverse — MMR's `diversity_penalty` only repels from *prior picks in the
+same call*, with no memory of the original aversion vector — while
+drifting back around into territory similar to the watch history itself
+(e.g. watched=blue, chain yellow → red → green → turquoise, where
+turquoise ends up close to blue again). Raising the weight toward
+`relevance` re-anchors every pick to the fixed aversion vector instead of
+just the previous pick.
+
+That fix has a tradeoff in the other direction: weighting `relevance`
+higher lowers `diversity_penalty`'s effective weight, which increases the
+risk of two mutually-similar candidates (e.g. two sequels from the same
+franchise) both landing in one result list. This is sharper than it sounds
+because `_softmax_sample` (the pre-MMR pool-selection step) has zero
+similarity-awareness of its own — MMR is the *only* backstop against
+same-list near-duplicates. 0.6 was chosen as a middle ground: still favors
+escaping the aversion vector over intra-batch diversity, but keeps more of
+the anti-duplicate force than a more aggressive value would.
+
+Neither the drift problem nor the duplicate-risk tradeoff has been
+empirically validated against real watch history/candidate data — both are
+reasoned from the formula, not measured. The validation script to do that
+(sample many `recommend()` calls; check pairwise similarity within each
+returned list for duplicate risk; check drift-toward-aversion-vector across
+sequential calls) hasn't been written yet.
 
 ## Open items
 
-- Distance-band percentiles, MMR/softmax parameters, and the new
-  `outlier_wildcard_probability` (`DiversityRecommender`'s defaults) are
-  unvalidated — worth revisiting once there's real usage to tune against.
+- The MMR weight tuning above is unvalidated — see that section for the
+  specific validation script that would settle it.
+- Distance-band percentiles and softmax parameters (`DiversityRecommender`'s
+  other defaults) are similarly unvalidated — worth revisiting once there's
+  real usage to tune against.
 - No LLM-generated commentary per card (unlike the main chat flow's
   `body_md`) — deliberately kept simple for v1; cards render with poster/
   rating/genre only, no generated blurb.
