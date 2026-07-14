@@ -72,66 +72,6 @@ comprehensions — check `app/domain/diversity.py` and
 dense functional-style code per their existing docstrings), then run
 `pre-commit run --all-files` per the repo's enforced-pre-commit convention.
 
-## 4. `httpx` instead of `urllib.request` in `app/adapters/poster_accent.py`
-
-**Current state**: `PosterAccents._extract`
-(`app/adapters/poster_accent.py:88-101`) uses
-`urllib.request.urlopen(thumb_url, timeout=_FETCH_TIMEOUT_S)` — a
-synchronous stdlib call, explicitly marked `# noqa: S310` (bandit's
-url-open check) and only made safe for async use by wrapping the whole
-`PosterAccents.accent_for` call in `run.io_bound(...)` from the caller side
-(`nicegui_app/main.py:71`, `_accent_for`).
-
-**Why it matters**: this is the only place in the codebase doing a raw
-synchronous network call dispatched to a thread pool to avoid blocking the
-event loop — everywhere else (Gemini, Qdrant) already has a native async
-client. Moving to `httpx.AsyncClient` would let poster fetching join the
-same `asyncio.gather` fan-out pattern used everywhere else in the codebase
-(see item 0 above and `app/domain/recommender.py`'s retriever fan-out)
-instead of needing the `run.io_bound` thread-pool hop, and gives consistent
-timeout/error semantics with whatever's chosen for item 2 (`tenacity` pairs
-naturally with `httpx`).
-
-**Concrete step**: add `httpx` to `pyproject.toml`, convert
-`PosterAccents._extract` to `async def` using a shared `httpx.AsyncClient`
-(construct once in `PosterAccents.__init__`, matching the existing
-"cached for the process lifetime" comment), update
-`PosterAccents.accent_for` to `async def`, and drop the `run.io_bound` wrap
-in `nicegui_app/main.py:71`. Keep the existing scheme allowlist check
-(`urlsplit(thumb_url).scheme not in ("http", "https")`,
-`app/adapters/poster_accent.py:92`) — that's a deliberate SSRF guard against
-a malformed/malicious `thumb_url`, not an artifact of using `urllib`, and
-must carry over as-is.
-
-## 5. `hypothesis` for `app/domain/diversity.py`
-
-**Current state**: `app/domain/diversity.py` (247 lines) is pure numeric
-domain logic with no I/O — `cosine_similarity`/`cosine_distance`,
-`build_aversion_vector` (recency-weighted centroid), `_distance_band`,
-`_softmax_sample`, `_mmr_select`. It's covered by example-based unit tests
-today (`tests/unit/test_diversity.py`).
-
-**Why it matters**: this module is the best-suited target in the whole repo
-for property-based testing — it's pure, numeric, and has invariants that
-are easy to state as properties but tedious to enumerate as examples:
-`cosine_similarity` is always in `[-1, 1]`; `_mmr_select` never returns
-duplicate `imdb_id`s and never returns more than `k`; `_distance_band`'s
-returned slice is always non-empty when the input is non-empty (per its own
-"at least one" clamp, referenced in `app/domain/diversity.py`'s
-`DiversityRecommender.recommend` docstring about tiny candidate pools);
-`build_aversion_vector` returns `None` iff `watched` is empty.
-
-**Concrete step**: add `hypothesis` to the `dev` dependency group, write
-`@given` strategies generating small `WatchedEmbedding`/`CandidateEmbedding`
-lists (`app/domain/ports.py`) with random-dimension float vectors, and
-property-test the invariants above alongside (not replacing) the existing
-example-based tests in `tests/unit/test_diversity.py`. Good first target:
-the core/tail overlap-dedup logic in `DiversityRecommender.recommend`
-(`app/domain/diversity.py`, the `core_ids`/`tail` filtering block) — it has
-a subtle edge case already called out in its own comment about tiny
-candidate pools, which is exactly the kind of edge case property-based
-testing surfaces better than hand-picked examples.
-
 ## 6. Vectorize candidate scoring in `app/domain/diversity.py` (no new library)
 
 **Current state**: `DiversityRecommender.recommend`

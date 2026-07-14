@@ -3,6 +3,8 @@ import random
 from datetime import datetime, timedelta
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from app.domain.diversity import (
     DiversityRecommender,
@@ -17,6 +19,62 @@ from app.domain.diversity import (
 from app.domain.ports import CandidateEmbedding, WatchedEmbedding
 
 _NOW = datetime(2026, 7, 12)
+
+# Bounded, finite floats -- unbounded magnitude just tests numpy's float64 precision
+# rather than the domain invariants, and NaN/inf aren't valid embedding coordinates.
+_FLOATS = st.floats(
+    min_value=-1e4, max_value=1e4, allow_nan=False, allow_infinity=False
+)
+
+
+@st.composite
+def _same_dim_vector_pair(draw: st.DrawFn) -> tuple[list[float], list[float]]:
+    """Two vectors of equal (randomly chosen) dimension -- cosine similarity is
+    only defined between same-length vectors."""
+    dim = draw(st.integers(min_value=1, max_value=8))
+    a = draw(st.lists(_FLOATS, min_size=dim, max_size=dim))
+    b = draw(st.lists(_FLOATS, min_size=dim, max_size=dim))
+    return a, b
+
+
+@st.composite
+def _distinct_candidates(
+    draw: st.DrawFn, max_size: int = 15
+) -> list[CandidateEmbedding]:
+    n = draw(st.integers(min_value=0, max_value=max_size))
+    dim = draw(st.integers(min_value=1, max_value=4))
+    return [
+        _candidate(f"tt{i}", draw(st.lists(_FLOATS, min_size=dim, max_size=dim)))
+        for i in range(n)
+    ]
+
+
+@st.composite
+def _same_dim_candidates(
+    draw: st.DrawFn, dim: int, max_size: int = 15
+) -> list[CandidateEmbedding]:
+    """Candidates all sharing a fixed vector dimension -- needed wherever they're
+    scored against a fixed-dimension aversion vector, since cosine similarity is
+    only defined between same-length vectors."""
+    n = draw(st.integers(min_value=0, max_value=max_size))
+    return [
+        _candidate(f"tt{i}", draw(st.lists(_FLOATS, min_size=dim, max_size=dim)))
+        for i in range(n)
+    ]
+
+
+@st.composite
+def _watched_list(draw: st.DrawFn, max_size: int = 10) -> list[WatchedEmbedding]:
+    n = draw(st.integers(min_value=0, max_value=max_size))
+    dim = draw(st.integers(min_value=1, max_value=4))
+    return [
+        _watched(
+            f"tt{i}",
+            draw(st.lists(_FLOATS, min_size=dim, max_size=dim)),
+            days_ago=draw(st.floats(min_value=0.0, max_value=365.0, allow_nan=False)),
+        )
+        for i in range(n)
+    ]
 
 
 def _watched(imdb_id: str, vector: list[float], days_ago: float) -> WatchedEmbedding:
@@ -65,11 +123,32 @@ def test_cosine_distance_identical_vectors_is_zero() -> None:
     assert cosine_distance([1.0, 0.0], [1.0, 0.0]) == pytest.approx(0.0)
 
 
+@given(_same_dim_vector_pair())
+def test_cosine_similarity_always_within_unit_range(
+    pair: tuple[list[float], list[float]],
+) -> None:
+    a, b = pair
+    # Cauchy-Schwarz guarantees [-1, 1] mathematically; the epsilon covers float64
+    # rounding, not a looser invariant.
+    assert -1.0 - 1e-6 <= cosine_similarity(a, b) <= 1.0 + 1e-6
+
+
 # --- build_aversion_vector ---
 
 
 def test_build_aversion_vector_returns_none_for_empty_list() -> None:
     assert build_aversion_vector([], half_life_days=14.0, now=_NOW) is None
+
+
+@given(
+    watched=_watched_list(),
+    half_life_days=st.floats(min_value=0.1, max_value=365.0, allow_nan=False),
+)
+def test_build_aversion_vector_none_iff_watched_empty(
+    watched: list[WatchedEmbedding], half_life_days: float
+) -> None:
+    result = build_aversion_vector(watched, half_life_days=half_life_days, now=_NOW)
+    assert (result is None) == (len(watched) == 0)
 
 
 def test_build_aversion_vector_single_item_returns_its_vector() -> None:
@@ -112,6 +191,22 @@ def test_distance_band_always_returns_at_least_one_for_nonempty_input() -> None:
     scored = [(_candidate("tt1", [1.0]), 0.5)]
     banded = _distance_band(scored, low_percentile=0.99, high_percentile=1.0)
     assert len(banded) == 1
+
+
+@given(
+    n=st.integers(min_value=1, max_value=30),
+    low_percentile=st.floats(min_value=0.0, max_value=0.99, allow_nan=False),
+    data=st.data(),
+)
+def test_distance_band_nonempty_for_any_nonempty_input(
+    n: int, low_percentile: float, data: st.DataObject
+) -> None:
+    high_percentile = data.draw(
+        st.floats(min_value=low_percentile, max_value=1.0, allow_nan=False)
+    )
+    scored = [(_candidate(f"tt{i}", [float(i)]), float(i)) for i in range(n)]
+    banded = _distance_band(scored, low_percentile, high_percentile)
+    assert len(banded) >= 1
 
 
 # --- _softmax_sample ---
@@ -160,6 +255,25 @@ def test_mmr_select_prefers_diverse_candidates_over_near_duplicates() -> None:
     ids = {c.imdb_id for c in selected}
     assert "b" in ids
     assert not {"a", "a2"} <= ids
+
+
+@given(
+    candidates=_distinct_candidates(),
+    k=st.integers(min_value=0, max_value=20),
+    diversity_weight=st.floats(min_value=0.0, max_value=1.0, allow_nan=False),
+    data=st.data(),
+)
+def test_mmr_select_never_exceeds_k_or_duplicates_a_candidate(
+    candidates: list[CandidateEmbedding],
+    k: int,
+    diversity_weight: float,
+    data: st.DataObject,
+) -> None:
+    aversion_distance = {c.imdb_id: data.draw(_FLOATS) for c in candidates}
+    selected = _mmr_select(candidates, aversion_distance, k, diversity_weight)
+    assert len(selected) <= min(k, len(candidates))
+    ids = [c.imdb_id for c in selected]
+    assert len(ids) == len(set(ids))
 
 
 # --- DiversityRecommender ---
@@ -310,3 +424,31 @@ def test_recommend_surfaces_outlier_tail_less_often_at_low_probability() -> None
     rare = _hit_rate(0.15)  # the shipped default
     common = _hit_rate(0.9)
     assert rare < common
+
+
+# --- core/tail dedup on tiny candidate pools (recommend()'s own overlap guard) ---
+
+
+@given(
+    candidates=_same_dim_candidates(dim=2, max_size=8),
+    seed=st.integers(min_value=0, max_value=10_000),
+)
+def test_recommend_never_returns_duplicate_ids_for_tiny_pools(
+    candidates: list[CandidateEmbedding], seed: int
+) -> None:
+    # Tiny pools are exactly where _distance_band's own "at least one" clamp can
+    # make the core and tail bands share a candidate (see the dedup comment in
+    # DiversityRecommender.recommend) -- without that dedup, the shared candidate
+    # could enter the MMR pool twice (once via the core softmax sample, once as
+    # the wildcard) and come out selected twice. outlier_wildcard_probability=1.0
+    # maximizes the chance of hitting that path on every draw.
+    watched = [_watched("watched1", [1.0, 0.0], days_ago=1)]
+    recommender = DiversityRecommender(
+        _FakeWatchHistory(watched),
+        _FakeCandidatePool(candidates),
+        k=len(candidates) or 1,
+        outlier_wildcard_probability=1.0,
+        rng=random.Random(seed),
+    )
+    result = recommender.recommend()
+    assert len(result) == len(set(result))
