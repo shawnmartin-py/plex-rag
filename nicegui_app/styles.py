@@ -447,21 +447,35 @@ h1, h2, h3, h4, h5, h6 {
    classification stamp, not another data pill. Rockwell is a system font
    (Monotype, not freely embeddable) — this degrades to a generic slab serif
    if unavailable, never to sans-serif, so the "certificate" read survives
-   even without Rockwell installed. */
+   even without Rockwell installed.
+
+   Vertical centering: certificate text is caps/digits only (no descenders),
+   but the font still reserves descender space below the baseline, so naive
+   centering leaves the glyphs sitting visibly above center. text-box trims
+   the line box to cap-height-to-baseline so the content box hugs the actual
+   ink, and the vertical padding then centers it — which is why there is no
+   fixed height here (a fixed height would pin the trimmed line to the top).
+   Deliberately NOT a flex box either: text-box-trim only applies to the
+   element's own line boxes, and in a flex container the text sits in an
+   anonymous flex item the (non-inherited) property never reaches. ~22px
+   tall, matching the pill badges: ~7px trimmed cap height + 12px combined
+   vertical padding + 2 * 1.5px border. The extra pixel of top padding
+   compensates for the cap-height metric sitting a hair above the actual
+   digit ink (measured against live Safari rendering). */
 .plex-cert {
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
+    display: inline-block !important;
+    text-align: center !important;
     min-width: 28px !important;
-    height: 22px !important;
-    padding: 0 6px !important;
+    padding: 7px 6px 5px !important;
     border: 1.5px solid rgba(255, 255, 255, 0.8) !important;
     border-radius: 4px !important;
     font-family: Rockwell, "Rockwell Nova", "Roboto Slab", serif !important;
     font-size: 12.5px !important;
     font-weight: 700 !important;
     letter-spacing: 0.01em !important;
+    line-height: 1 !important;
     color: var(--plex-ink) !important;
+    text-box: trim-both cap alphabetic;
 }
 .plex-platform-badge {
     height: 18px !important;
