@@ -57,11 +57,9 @@ def boosted_band_colors(image_bytes: bytes) -> tuple[str, ...]:
         )
         samples = band.resize((_BAND_SAMPLES, 1))
         pixels = [samples.getpixel((x, 0)) for x in range(_BAND_SAMPLES)]
-    colors = []
-    for pixel in pixels:
-        # getpixel is typed as float | tuple | None across modes; "RGB"
-        # always yields a 3-tuple.
-        colors.append(_boost(*cast(tuple[int, int, int], pixel)))
+    # getpixel is typed as float | tuple | None across modes; "RGB" always
+    # yields a 3-tuple.
+    colors = [_boost(*cast(tuple[int, int, int], pixel)) for pixel in pixels]
     return tuple(colors)
 
 

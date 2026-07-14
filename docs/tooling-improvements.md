@@ -45,33 +45,6 @@ in `vector_store.py` should stay fail-fast, not retry). Keep retries out of
 `_connect_and_validate`'s startup validation path specifically — that one
 should still fail fast and loud, per its existing docstring intent.
 
-## 3. Expand the ruff ruleset
-
-**Current state**: `pyproject.toml`'s `[tool.ruff.lint]` has
-`select = ["E", "F", "W", "I", "S", "B", "UP"]` (pycodestyle, pyflakes,
-isort, bandit, bugbear, pyupgrade). ruff is already wired into
-`.pre-commit-config.yaml` and enforced — pre-commit is not advisory in this
-repo; hooks run `--all-files` and the config is kept free of irrelevant
-cruft.
-
-**Why it matters**: zero new dependency, since ruff is already the
-enforced linter. The codebase is heavily async (`asyncio.gather` fan-outs in
-`app/domain/recommender.py`, `async def`/`await` throughout
-`app/adapters/`, `nicegui_app/main.py`) — ruff's `ASYNC` rule set exists
-specifically to catch async anti-patterns, and would likely have flagged
-the sequential-await-in-comprehension bug described above (`ASYNC` rules
-flag blocking/sequential patterns inside async defs). `PERF` (perflint) and
-`SIM` (flake8-simplify) are similarly zero-cost, high-signal additions for
-a codebase this disciplined about everything else.
-
-**Concrete step**: add `"ASYNC", "PERF", "SIM", "C4", "RUF"` to the
-`select` list in `pyproject.toml`, run `ruff check --fix .`, review the
-diff (some `SIM`/`C4` autofixes can reduce readability in dense
-comprehensions — check `app/domain/diversity.py` and
-`app/domain/recommender.py` specifically, since both have deliberately
-dense functional-style code per their existing docstrings), then run
-`pre-commit run --all-files` per the repo's enforced-pre-commit convention.
-
 ## 6. Vectorize candidate scoring in `app/domain/diversity.py` (no new library)
 
 **Current state**: `DiversityRecommender.recommend`
