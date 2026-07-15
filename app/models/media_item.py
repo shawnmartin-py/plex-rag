@@ -36,6 +36,7 @@ class StreamingSource(enum.Enum):
 
 @dataclass
 class MediaItem:
+    tmdb_id: str
     imdb_id: str
     type: str
     title: str

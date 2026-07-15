@@ -8,6 +8,7 @@ from app.models.media_item import MediaItem, StreamingSource, VideoResolution
 
 def make_item(**overrides: object) -> MediaItem:
     defaults: dict[str, object] = {
+        "tmdb_id": "496243",
         "imdb_id": "tt6751668",
         "type": "movie",
         "title": "Parasite",

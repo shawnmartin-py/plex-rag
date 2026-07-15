@@ -42,9 +42,7 @@ def generator() -> tuple[GeminiRecommendationGenerator, MagicMock]:
     mock_chain.ainvoke = AsyncMock(
         return_value=RecommendationResponse(
             cards=[
-                RecommendationCard(
-                    imdb_id="tt001", body_md="here are my recommendations"
-                )
+                RecommendationCard(tmdb_id="001", body_md="here are my recommendations")
             ]
         )
     )
@@ -59,9 +57,7 @@ def spoiler_free_generator() -> tuple[GeminiRecommendationGenerator, MagicMock]:
     mock_chain.ainvoke = AsyncMock(
         return_value=RecommendationResponse(
             cards=[
-                RecommendationCard(
-                    imdb_id="tt001", body_md="here are my recommendations"
-                )
+                RecommendationCard(tmdb_id="001", body_md="here are my recommendations")
             ]
         )
     )
@@ -139,7 +135,7 @@ async def test_generator_returns_structured_response(
 ) -> None:
     instance, _ = generator
     result = await instance.generate("recommend a thriller", "some context", history=[])
-    assert result.cards[0].imdb_id == "tt001"
+    assert result.cards[0].tmdb_id == "001"
     assert result.cards[0].body_md == "here are my recommendations"
 
 
@@ -242,17 +238,17 @@ async def test_stream_yields_nothing_until_a_card_is_superseded() -> None:
     instance._chain = _make_streaming_chain(
         [
             RecommendationResponse(
-                cards=[RecommendationCard(imdb_id="tt001", body_md="Gre")]
+                cards=[RecommendationCard(tmdb_id="001", body_md="Gre")]
             ),
             RecommendationResponse(
-                cards=[RecommendationCard(imdb_id="tt001", body_md="Great pick.")]
+                cards=[RecommendationCard(tmdb_id="001", body_md="Great pick.")]
             ),
         ]
     )
     events = [e async for e in instance.stream("q", "context", history=[])]
     # A single card never gets superseded mid-stream — it only finalizes
     # once the stream ends.
-    assert events == [SectionReady(imdb_id="tt001", body_md="Great pick.")]
+    assert events == [SectionReady(tmdb_id="001", body_md="Great pick.")]
 
 
 async def test_stream_finalizes_a_card_once_the_list_grows_past_it() -> None:
@@ -260,26 +256,26 @@ async def test_stream_finalizes_a_card_once_the_list_grows_past_it() -> None:
     instance._chain = _make_streaming_chain(
         [
             RecommendationResponse(
-                cards=[RecommendationCard(imdb_id="tt001", body_md="Great pick.")]
+                cards=[RecommendationCard(tmdb_id="001", body_md="Great pick.")]
             ),
             RecommendationResponse(
                 cards=[
-                    RecommendationCard(imdb_id="tt001", body_md="Great pick."),
-                    RecommendationCard(imdb_id="tt002", body_md="Also"),
+                    RecommendationCard(tmdb_id="001", body_md="Great pick."),
+                    RecommendationCard(tmdb_id="002", body_md="Also"),
                 ]
             ),
             RecommendationResponse(
                 cards=[
-                    RecommendationCard(imdb_id="tt001", body_md="Great pick."),
-                    RecommendationCard(imdb_id="tt002", body_md="Also great."),
+                    RecommendationCard(tmdb_id="001", body_md="Great pick."),
+                    RecommendationCard(tmdb_id="002", body_md="Also great."),
                 ]
             ),
         ]
     )
     events = [e async for e in instance.stream("q", "context", history=[])]
     assert events == [
-        SectionReady(imdb_id="tt001", body_md="Great pick."),
-        SectionReady(imdb_id="tt002", body_md="Also great."),
+        SectionReady(tmdb_id="001", body_md="Great pick."),
+        SectionReady(tmdb_id="002", body_md="Also great."),
     ]
 
 
@@ -290,14 +286,14 @@ async def test_stream_flushes_intro_once_cards_becomes_non_empty() -> None:
             RecommendationResponse(intro="Here are some picks:"),
             RecommendationResponse(
                 intro="Here are some picks:",
-                cards=[RecommendationCard(imdb_id="tt001", body_md="Great pick.")],
+                cards=[RecommendationCard(tmdb_id="001", body_md="Great pick.")],
             ),
         ]
     )
     events = [e async for e in instance.stream("q", "context", history=[])]
     assert events == [
         TextDelta(text="Here are some picks:"),
-        SectionReady(imdb_id="tt001", body_md="Great pick."),
+        SectionReady(tmdb_id="001", body_md="Great pick."),
     ]
 
 
@@ -306,17 +302,17 @@ async def test_stream_flushes_closing_note_after_the_last_card() -> None:
     instance._chain = _make_streaming_chain(
         [
             RecommendationResponse(
-                cards=[RecommendationCard(imdb_id="tt001", body_md="Great pick.")]
+                cards=[RecommendationCard(tmdb_id="001", body_md="Great pick.")]
             ),
             RecommendationResponse(
-                cards=[RecommendationCard(imdb_id="tt001", body_md="Great pick.")],
+                cards=[RecommendationCard(tmdb_id="001", body_md="Great pick.")],
                 closing_note="Enjoy!",
             ),
         ]
     )
     events = [e async for e in instance.stream("q", "context", history=[])]
     assert events == [
-        SectionReady(imdb_id="tt001", body_md="Great pick."),
+        SectionReady(tmdb_id="001", body_md="Great pick."),
         TextDelta(text="Enjoy!"),
     ]
 

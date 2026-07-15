@@ -26,13 +26,13 @@ _R = "retriever"  # generic retriever name for tests
 
 
 def make_doc(
-    imdb_id: str,
+    tmdb_id: str,
     title: str,
     embedding_type: str = "synopsis",
     section: str | None = None,
 ) -> RetrievedChunk:
     metadata = {
-        "imdb_id": imdb_id,
+        "tmdb_id": tmdb_id,
         "title": title,
         "year": 2020,
         "embedding_type": embedding_type,
@@ -48,7 +48,7 @@ def make_doc(
 # --- _group_docs ---
 
 
-def test_group_docs_groups_by_imdb_id() -> None:
+def test_group_docs_groups_by_tmdb_id() -> None:
     synopsis = make_doc("tt001", "Parasite", "synopsis")
     craft = make_doc("tt001", "Parasite", "enriched", "craft")
     grouped, _ = _group_docs([(_R, [synopsis, craft])])
@@ -69,8 +69,8 @@ def test_group_docs_keeps_different_sections_for_same_movie() -> None:
     assert len(grouped["tt001"]) == 3
 
 
-def test_group_docs_dedup_key_is_imdb_id_type_section() -> None:
-    # Same imdb_id + type + section = duplicate even if retrieved by
+def test_group_docs_dedup_key_is_tmdb_id_type_section() -> None:
+    # Same tmdb_id + type + section = duplicate even if retrieved by
     # different retrievers
     doc1 = make_doc("tt001", "Parasite", "enriched", "craft")
     doc2 = make_doc("tt001", "Parasite", "enriched", "craft")
@@ -174,7 +174,7 @@ def test_format_grouped_empty_grouped() -> None:
     assert _format_grouped({}) == ""
 
 
-def test_format_grouped_includes_imdb_id_in_header() -> None:
+def test_format_grouped_includes_tmdb_id_in_header() -> None:
     doc = make_doc("tt001", "Parasite", "synopsis")
     result = _format_grouped({"tt001": [doc]})
     assert "tt001" in result
@@ -217,14 +217,14 @@ class StubGenerator(RecommendationGenerator):
     ) -> RecommendationResponse:
         return RecommendationResponse(
             cards=[
-                RecommendationCard(imdb_id="tt001", body_md=f"answer for: {question}")
+                RecommendationCard(tmdb_id="tt001", body_md=f"answer for: {question}")
             ]
         )
 
     async def stream(
         self, question: str, context: str, history: list[ChatMessage]
     ) -> AsyncIterator[StreamEvent]:
-        yield SectionReady(imdb_id="tt001", body_md=f"answer for: {question}")
+        yield SectionReady(tmdb_id="tt001", body_md=f"answer for: {question}")
 
 
 class EventStubGenerator(RecommendationGenerator):
@@ -343,7 +343,7 @@ async def test_recommend_returns_answer_built_from_cards(
     generator = MagicMock(spec=RecommendationGenerator)
     generator.generate.return_value = RecommendationResponse(
         intro="Here's a pick:",
-        cards=[RecommendationCard(imdb_id="tt001", body_md="Great film.")],
+        cards=[RecommendationCard(tmdb_id="tt001", body_md="Great film.")],
     )
     recommender = MovieRecommender(
         [StubRetriever([single_doc])], generator, StubRewriter()
@@ -355,12 +355,12 @@ async def test_recommend_returns_answer_built_from_cards(
     assert mentioned_ids == ["tt001"]
 
 
-async def test_recommend_drops_hallucinated_imdb_id(single_doc: RetrievedChunk) -> None:
+async def test_recommend_drops_hallucinated_tmdb_id(single_doc: RetrievedChunk) -> None:
     generator = MagicMock(spec=RecommendationGenerator)
     generator.generate.return_value = RecommendationResponse(
         cards=[
-            RecommendationCard(imdb_id="tt001", body_md="Real pick."),
-            RecommendationCard(imdb_id="tt999", body_md="Invented film."),
+            RecommendationCard(tmdb_id="tt001", body_md="Real pick."),
+            RecommendationCard(tmdb_id="tt999", body_md="Invented film."),
         ]
     )
     recommender = MovieRecommender(
@@ -390,7 +390,7 @@ async def test_recommend_stream_yields_section_ready(
     single_doc: RetrievedChunk,
 ) -> None:
     generator = EventStubGenerator(
-        [SectionReady(imdb_id="tt001", body_md="Great pick.")]
+        [SectionReady(tmdb_id="tt001", body_md="Great pick.")]
     )
     recommender = MovieRecommender(
         [StubRetriever([single_doc])], generator, StubRewriter()
@@ -401,9 +401,9 @@ async def test_recommend_stream_yields_section_ready(
 
     assert len(events) == 1
     assert isinstance(events[0], SectionReady)
-    assert events[0].imdb_id == "tt001"
+    assert events[0].tmdb_id == "tt001"
     assert events[0].body_md == "Great pick."
-    assert streamed.imdb_ids == ["tt001"]
+    assert streamed.tmdb_ids == ["tt001"]
 
 
 async def test_recommend_stream_yields_multiple_sections_in_order() -> None:
@@ -411,8 +411,8 @@ async def test_recommend_stream_yields_multiple_sections_in_order() -> None:
     doc_b = make_doc("tt002", "Oldboy")
     generator = EventStubGenerator(
         [
-            SectionReady(imdb_id="tt001", body_md="Great pick."),
-            SectionReady(imdb_id="tt002", body_md="Also great."),
+            SectionReady(tmdb_id="tt001", body_md="Great pick."),
+            SectionReady(tmdb_id="tt002", body_md="Also great."),
         ]
     )
     recommender = MovieRecommender(
@@ -423,8 +423,8 @@ async def test_recommend_stream_yields_multiple_sections_in_order() -> None:
     events = [event async for event in streamed.events]
     sections = [e for e in events if isinstance(e, SectionReady)]
 
-    assert [s.imdb_id for s in sections] == ["tt001", "tt002"]
-    assert streamed.imdb_ids == ["tt001", "tt002"]
+    assert [s.tmdb_id for s in sections] == ["tt001", "tt002"]
+    assert streamed.tmdb_ids == ["tt001", "tt002"]
 
 
 async def test_recommend_stream_yields_intro_as_text_delta(
@@ -433,7 +433,7 @@ async def test_recommend_stream_yields_intro_as_text_delta(
     generator = EventStubGenerator(
         [
             TextDelta(text="Here are some picks:"),
-            SectionReady(imdb_id="tt001", body_md="Great pick."),
+            SectionReady(tmdb_id="tt001", body_md="Great pick."),
         ]
     )
     recommender = MovieRecommender(
@@ -453,8 +453,8 @@ async def test_recommend_stream_drops_hallucinated_card(
 ) -> None:
     generator = EventStubGenerator(
         [
-            SectionReady(imdb_id="tt999", body_md="Invented."),
-            SectionReady(imdb_id="tt001", body_md="Real pick."),
+            SectionReady(tmdb_id="tt999", body_md="Invented."),
+            SectionReady(tmdb_id="tt001", body_md="Real pick."),
         ]
     )
     recommender = MovieRecommender(
@@ -466,15 +466,15 @@ async def test_recommend_stream_drops_hallucinated_card(
 
     assert len(events) == 1
     assert isinstance(events[0], SectionReady)
-    assert events[0].imdb_id == "tt001"
-    assert streamed.imdb_ids == ["tt001"]
+    assert events[0].tmdb_id == "tt001"
+    assert streamed.tmdb_ids == ["tt001"]
 
 
 async def test_recommend_stream_sets_answer_with_synthesized_heading(
     single_doc: RetrievedChunk,
 ) -> None:
     generator = EventStubGenerator(
-        [SectionReady(imdb_id="tt001", body_md="Great pick.")]
+        [SectionReady(tmdb_id="tt001", body_md="Great pick.")]
     )
     recommender = MovieRecommender(
         [StubRetriever([single_doc])], generator, StubRewriter()
@@ -494,7 +494,7 @@ async def test_recommend_stream_answer_includes_text_deltas_in_order(
     generator = EventStubGenerator(
         [
             TextDelta(text="Intro text."),
-            SectionReady(imdb_id="tt001", body_md="Great pick."),
+            SectionReady(tmdb_id="tt001", body_md="Great pick."),
             TextDelta(text="Closing text."),
         ]
     )
@@ -516,7 +516,7 @@ async def test_recommend_omits_coverage_report_by_default(
 ) -> None:
     generator = MagicMock(spec=RecommendationGenerator)
     generator.generate.return_value = RecommendationResponse(
-        cards=[RecommendationCard(imdb_id="tt001", body_md="Great pick.")]
+        cards=[RecommendationCard(tmdb_id="tt001", body_md="Great pick.")]
     )
     recommender = MovieRecommender(
         [StubRetriever([single_doc])], generator, StubRewriter()
@@ -530,7 +530,7 @@ async def test_recommend_verbose_builds_coverage_report(
 ) -> None:
     generator = MagicMock(spec=RecommendationGenerator)
     generator.generate.return_value = RecommendationResponse(
-        cards=[RecommendationCard(imdb_id="tt001", body_md="Great pick.")]
+        cards=[RecommendationCard(tmdb_id="tt001", body_md="Great pick.")]
     )
     recommender = MovieRecommender(
         [StubRetriever([single_doc])], generator, StubRewriter()

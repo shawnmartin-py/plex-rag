@@ -29,8 +29,8 @@ RECOMMENDATION_RESPONSE = json.dumps(
     {
         "intro": RECOMMENDATION_INTRO,
         "cards": [
-            {"imdb_id": "tt6751668", "body_md": "**Why it fits:** class themes."},
-            {"imdb_id": "tt0364569", "body_md": "**Why it fits:** dark thriller vibe."},
+            {"tmdb_id": "496243", "body_md": "**Why it fits:** class themes."},
+            {"tmdb_id": "670", "body_md": "**Why it fits:** dark thriller vibe."},
         ],
         "closing_note": "",
     }
@@ -133,7 +133,7 @@ async def test_knowledge_retriever_contributes_docs_to_context(
         ) -> RecommendationResponse:
             captured_contexts.append(context)
             return RecommendationResponse(
-                cards=[RecommendationCard(imdb_id="tt4016934", body_md="answer")]
+                cards=[RecommendationCard(tmdb_id="290098", body_md="answer")]
             )
 
     recommender = MovieRecommender(

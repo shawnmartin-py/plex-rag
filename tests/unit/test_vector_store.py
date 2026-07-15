@@ -10,6 +10,7 @@ from app.repositories.vector_store import (
     load_synopsis_documents,
     load_synopsis_vectors,
     load_watch_history_points,
+    tmdb_id_exists,
 )
 from tests.e2e.conftest import StubEmbeddings
 
@@ -65,7 +66,11 @@ def test_load_synopsis_documents_builds_documents_from_scroll_results() -> None:
     mock_point = MagicMock()
     mock_point.payload = {
         "page_content": "Title: Parasite",
-        "metadata": {"imdb_id": "tt6751668", "title": "Parasite"},
+        "metadata": {
+            "tmdb_id": "496243",
+            "imdb_id": "tt6751668",
+            "title": "Parasite",
+        },
     }
     mock_vector_store = MagicMock()
     mock_vector_store.client.scroll.return_value = ([mock_point], None)
@@ -74,6 +79,7 @@ def test_load_synopsis_documents_builds_documents_from_scroll_results() -> None:
 
     assert len(docs) == 1
     assert docs[0].page_content == "Title: Parasite"
+    assert docs[0].metadata["tmdb_id"] == "496243"
     assert docs[0].metadata["imdb_id"] == "tt6751668"
 
 
@@ -94,7 +100,7 @@ def test_load_synopsis_documents_filters_by_synopsis_embedding_type() -> None:
 def test_load_synopsis_vectors_builds_candidates_from_scroll_results() -> None:
     mock_point = MagicMock()
     mock_point.payload = {
-        "metadata": {"imdb_id": "tt6751668", "imdb_rating": 8.5},
+        "metadata": {"tmdb_id": "496243", "imdb_rating": 8.5},
     }
     mock_point.vector = [0.1, 0.2, 0.3]
     mock_vector_store = MagicMock()
@@ -103,7 +109,7 @@ def test_load_synopsis_vectors_builds_candidates_from_scroll_results() -> None:
     result = load_synopsis_vectors(mock_vector_store, "media_items")
 
     assert len(result) == 1
-    assert result[0].imdb_id == "tt6751668"
+    assert result[0].tmdb_id == "496243"
     assert result[0].vector == [0.1, 0.2, 0.3]
     assert result[0].imdb_rating == 8.5
 
@@ -121,12 +127,12 @@ def test_load_synopsis_vectors_filters_by_synopsis_embedding_type() -> None:
 
 def test_load_synopsis_vectors_raises_on_non_flat_vector() -> None:
     mock_point = MagicMock()
-    mock_point.payload = {"metadata": {"imdb_id": "tt0001", "imdb_rating": 7.0}}
+    mock_point.payload = {"metadata": {"tmdb_id": "101", "imdb_rating": 7.0}}
     mock_point.vector = {"named": [0.1, 0.2]}
     mock_vector_store = MagicMock()
     mock_vector_store.client.scroll.return_value = ([mock_point], None)
 
-    with pytest.raises(TypeError, match="tt0001"):
+    with pytest.raises(TypeError, match="101"):
         load_synopsis_vectors(mock_vector_store, "media_items")
 
 
@@ -166,6 +172,30 @@ def test_imdb_id_exists_raises_when_collection_missing() -> None:
             imdb_id_exists("http://localhost:6333", "media_items", "tt0111161")
 
 
+# --- tmdb_id_exists ---
+
+
+def test_tmdb_id_exists_true_when_count_positive() -> None:
+    mock_client = make_mock_client()
+    mock_client.count.return_value.count = 1
+    with patch("app.repositories.vector_store.QdrantClient", return_value=mock_client):
+        assert tmdb_id_exists("http://localhost:6333", "media_items", "603")
+
+
+def test_tmdb_id_exists_filters_by_tmdb_id_as_string() -> None:
+    """tmdb ids are numeric-looking but stringly-typed on the wire — an int
+    MatchValue would never match, so the filter value must stay a str."""
+    mock_client = make_mock_client()
+    mock_client.count.return_value.count = 0
+    with patch("app.repositories.vector_store.QdrantClient", return_value=mock_client):
+        tmdb_id_exists("http://localhost:6333", "media_items", "603")
+
+    call_kwargs = mock_client.count.call_args.kwargs
+    assert call_kwargs["count_filter"].must[0].key == "metadata.tmdb_id"
+    assert call_kwargs["count_filter"].must[0].match.value == "603"
+    assert isinstance(call_kwargs["count_filter"].must[0].match.value, str)
+
+
 # --- load_watch_history_points ---
 
 
@@ -173,6 +203,7 @@ def test_load_watch_history_points_builds_points_from_scroll_results() -> None:
     mock_point = MagicMock()
     mock_point.payload = {
         "metadata": {
+            "tmdb_id": "263472",
             "imdb_id": "tt3605418",
             "last_viewed_at": "2026-07-01T21:24:14",
         },
@@ -184,6 +215,6 @@ def test_load_watch_history_points_builds_points_from_scroll_results() -> None:
     result = load_watch_history_points(mock_vector_store, "watch_history")
 
     assert len(result) == 1
-    assert result[0].imdb_id == "tt3605418"
+    assert result[0].tmdb_id == "263472"
     assert result[0].vector == [0.4, 0.5]
     assert result[0].last_viewed_at.isoformat() == "2026-07-01T21:24:14"

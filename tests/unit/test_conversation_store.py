@@ -107,6 +107,7 @@ def test_save_prunes_beyond_ten_most_recently_updated_conversations(
 def test_messages_with_items_roundtrip_losslessly(tmp_path: Path) -> None:
     store = make_store(tmp_path)
     item_dict = {
+        "tmdb_id": "1",
         "imdb_id": "tt0000001",
         "type": "movie",
         "title": "Heat",

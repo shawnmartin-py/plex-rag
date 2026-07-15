@@ -11,13 +11,14 @@ from nicegui_app.components import (
 
 
 def make_item(
-    imdb_id: str,
+    tmdb_id: str,
     title: str,
     hdr_formats: list[HdrFormat] | None = None,
     runtime_minutes: int | None = None,
 ) -> MediaItem:
     return MediaItem(
-        imdb_id=imdb_id,
+        tmdb_id=tmdb_id,
+        imdb_id=f"tt{tmdb_id}",
         type="movie",
         title=title,
         year=2020,
@@ -42,8 +43,8 @@ async def test_render_recommendations_pairs_items_positionally_not_by_title() ->
         "1. **Parasite** (2019)\nFirst body.\n\n2. **Old Boy** (2003)\nSecond body."
     )
     items = [
-        make_item("tt1", "Totally Different Title"),
-        make_item("tt2", "Another Unrelated Title"),
+        make_item("1", "Totally Different Title"),
+        make_item("2", "Another Unrelated Title"),
     ]
 
     async def root() -> None:
@@ -67,7 +68,7 @@ async def test_render_recommendations_marks_only_first_card_as_top_pick() -> Non
         "2. **B** (2020)\nBody B.\n\n"
         "3. **C** (2021)\nBody C."
     )
-    items = [make_item("tt1", "A"), make_item("tt2", "B"), make_item("tt3", "C")]
+    items = [make_item("1", "A"), make_item("2", "B"), make_item("3", "C")]
 
     async def root() -> None:
         container = ui.column()
@@ -83,7 +84,7 @@ async def test_render_recommendations_marks_only_first_card_as_top_pick() -> Non
 @pytest.mark.anyio
 async def test_render_recommendations_falls_back_without_numbered_sections() -> None:
     response = "I don't have a great match in your library for that request."
-    items = [make_item("tt1", "Some Movie")]
+    items = [make_item("1", "Some Movie")]
 
     async def root() -> None:
         container = ui.column()
@@ -121,7 +122,7 @@ async def test_render_recommendations_extra_sections_render_as_plain_markdown() 
         "2. **B** (2020)\nBody B.\n\n"
         "3. **Mulholland Drive** (2001)\nBody C."
     )
-    items = [make_item("tt1", "A"), make_item("tt2", "B")]
+    items = [make_item("1", "A"), make_item("2", "B")]
 
     async def root() -> None:
         container = ui.column()
@@ -150,7 +151,7 @@ async def test_render_surprise_results_renders_every_item_without_numbered_text(
     numbered sections" fallback intentionally drops items, since that also
     covers a regular chat turn's declined-to-recommend response)."""
     response = "Something different, based on your recent watches:"
-    items = [make_item("tt1", "Paprika"), make_item("tt2", "Perfect Blue")]
+    items = [make_item("1", "Paprika"), make_item("2", "Perfect Blue")]
 
     async def root() -> None:
         container = ui.column()
@@ -185,7 +186,7 @@ async def test_render_recommendations_renders_imdb_rating_badge() -> None:
     """The rating badge is a raw anchor (so the star can be a tungsten span)
     — it must still carry the rating and the IMDb link."""
     response = "1. **A** (2019)\nBody A."
-    items = [make_item("tt1", "A")]
+    items = [make_item("1", "A")]
 
     async def root() -> None:
         container = ui.column()
@@ -202,7 +203,7 @@ async def test_render_recommendations_renders_hdr_format_badges() -> None:
     """A dual-layer Dolby Vision file carries both formats at once — every
     listed format gets its own mark, in list order."""
     response = "1. **A** (2019)\nBody A."
-    items = [make_item("tt1", "A", hdr_formats=[HdrFormat.HDR, HdrFormat.DV])]
+    items = [make_item("1", "A", hdr_formats=[HdrFormat.HDR, HdrFormat.DV])]
 
     async def root() -> None:
         container = ui.column()
@@ -217,7 +218,7 @@ async def test_render_recommendations_renders_hdr_format_badges() -> None:
 @pytest.mark.anyio
 async def test_render_recommendations_renders_runtime() -> None:
     response = "1. **A** (2019)\nBody A."
-    items = [make_item("tt1", "A", runtime_minutes=104)]
+    items = [make_item("1", "A", runtime_minutes=104)]
 
     async def root() -> None:
         container = ui.column()
@@ -233,7 +234,7 @@ async def test_render_recommendations_omits_runtime_when_unresolved() -> None:
     """A streaming-placeholder movie whose OMDb lookup hasn't resolved carries
     `runtime_minutes=None` — the card must not show a blank/garbled runtime."""
     response = "1. **A** (2019)\nBody A."
-    items = [make_item("tt1", "A", runtime_minutes=None)]
+    items = [make_item("1", "A", runtime_minutes=None)]
 
     async def root() -> None:
         container = ui.column()
@@ -247,7 +248,7 @@ async def test_render_recommendations_omits_runtime_when_unresolved() -> None:
 @pytest.mark.anyio
 async def test_render_recommendations_renders_content_rating_cert() -> None:
     response = "1. **A** (2019)\nBody A."
-    items = [make_item("tt1", "A")]
+    items = [make_item("1", "A")]
 
     async def root() -> None:
         container = ui.column()
@@ -261,7 +262,7 @@ async def test_render_recommendations_renders_content_rating_cert() -> None:
 @pytest.mark.anyio
 async def test_render_recommendations_omits_hdr_badges_for_sdr_item() -> None:
     response = "1. **A** (2019)\nBody A."
-    items = [make_item("tt1", "A")]
+    items = [make_item("1", "A")]
 
     async def root() -> None:
         container = ui.column()

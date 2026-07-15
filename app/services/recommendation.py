@@ -8,7 +8,7 @@ from app.models.media_item import MediaItem
 
 @dataclass(frozen=True)
 class CardReady:
-    """The UI-facing counterpart to `SectionReady`, with the imdb_id already
+    """The UI-facing counterpart to `SectionReady`, with the tmdb_id already
     resolved to a full `MediaItem` (poster, rating, etc.) — or `None` if the
     id couldn't be resolved, in which case the card should be skipped."""
 
@@ -50,10 +50,10 @@ class ConversationalRecommendationService:
     async def chat_with_items(
         self, question: str, media_repo: MediaItemLookup
     ) -> tuple[str, list[MediaItem]]:
-        answer, imdb_ids, _ = await self._recommender.recommend(question, self._history)
+        answer, tmdb_ids, _ = await self._recommender.recommend(question, self._history)
         self._history.append(ChatMessage(role="human", content=question))
         self._history.append(ChatMessage(role="ai", content=answer))
-        items = [media_repo.get_by_id(imdb_id) for imdb_id in imdb_ids]
+        items = [media_repo.get_by_id(tmdb_id) for tmdb_id in tmdb_ids]
         return answer, [i for i in items if i is not None]
 
     async def chat_with_items_stream(
@@ -66,7 +66,7 @@ class ConversationalRecommendationService:
             async for event in streamed.events:
                 if isinstance(event, SectionReady):
                     item = (
-                        media_repo.get_by_id(event.imdb_id) if event.imdb_id else None
+                        media_repo.get_by_id(event.tmdb_id) if event.tmdb_id else None
                     )
                     if item is not None:
                         items.append(item)

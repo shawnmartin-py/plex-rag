@@ -61,6 +61,30 @@ def check_imdb(
 
 
 @app.command()
+def check_tmdb(
+    tmdb_id: str = typer.Argument(..., help="TMDB ID to look up, e.g. 603."),
+) -> None:
+    """Check whether a TMDB ID is present in the Qdrant media_items collection.
+
+    TMDB ids are the collection's primary key (see docs/vector-store-contract.md);
+    `check-imdb` still works against the retained imdb_id metadata attribute.
+    Prints "true" or "false" and exits 0 if found, 1 if not, 2 if Qdrant is
+    unreachable — same convention as `check-imdb`.
+    """
+    from app.config import QDRANT_COLLECTION, QDRANT_URL
+    from app.repositories.vector_store import QdrantUnavailableError, tmdb_id_exists
+
+    try:
+        exists = tmdb_id_exists(QDRANT_URL, QDRANT_COLLECTION, tmdb_id)
+    except QdrantUnavailableError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(2) from None
+
+    typer.echo("true" if exists else "false")
+    raise typer.Exit(0 if exists else 1)
+
+
+@app.command()
 def clear_history() -> None:
     """Wipe the web UI's recent-conversations history."""
     from app.config import CONVERSATIONS_DB_PATH

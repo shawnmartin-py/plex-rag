@@ -51,11 +51,11 @@ class ConversationTitler(ABC):
 
 
 class RecommendationCard(BaseModel):
-    """One recommended film. `imdb_id` is declared before `body_md` so it
+    """One recommended film. `tmdb_id` is declared before `body_md` so it
     resolves before the prose does when streamed via `with_structured_output`
     (see docs/plan-structured-recommendation-output.md §3.3)."""
 
-    imdb_id: str
+    tmdb_id: str
     body_md: str
 
 
@@ -81,7 +81,7 @@ class TextDelta:
 class SectionReady:
     """One finished recommendation card, ready to render as a UI card."""
 
-    imdb_id: str
+    tmdb_id: str
     body_md: str
 
 
@@ -105,10 +105,10 @@ class RecommendationGenerator(ABC):
 
 
 class MediaItemLookup(Protocol):
-    """Resolves an imdb_id to a full MediaItem (poster, rating, etc.) for rendering
+    """Resolves a tmdb_id to a full MediaItem (poster, rating, etc.) for rendering
     recommended films — satisfied by QdrantMediaItems."""
 
-    def get_by_id(self, imdb_id: str) -> MediaItem | None: ...
+    def get_by_id(self, tmdb_id: str) -> MediaItem | None: ...
 
 
 @dataclass(frozen=True)
@@ -118,7 +118,7 @@ class WatchedEmbedding:
     how plex-ingest stores it (Plex's own local-server timestamps carry no tzinfo
     either) — callers compare it against a naive `now`, not an aware one."""
 
-    imdb_id: str
+    tmdb_id: str
     vector: list[float]
     last_viewed_at: datetime
 
@@ -139,7 +139,7 @@ class CandidateEmbedding:
     docs/pipeline-design.md), so no separate "exclude watched" filtering is needed
     here."""
 
-    imdb_id: str
+    tmdb_id: str
     vector: list[float]
     imdb_rating: float | None
 

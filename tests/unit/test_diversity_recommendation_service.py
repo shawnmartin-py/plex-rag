@@ -28,15 +28,16 @@ class _FakeMediaRepo:
     def __init__(self, items: dict[str, MediaItem]) -> None:
         self._items = items
 
-    def get_by_id(self, imdb_id: str) -> MediaItem | None:
-        return self._items.get(imdb_id)
+    def get_by_id(self, tmdb_id: str) -> MediaItem | None:
+        return self._items.get(tmdb_id)
 
 
-def _media_item(imdb_id: str) -> MediaItem:
+def _media_item(tmdb_id: str) -> MediaItem:
     return MediaItem(
-        imdb_id=imdb_id,
+        tmdb_id=tmdb_id,
+        imdb_id="tt0000001",
         type="movie",
-        title=imdb_id,
+        title=tmdb_id,
         year=2020,
         imdb_rating=7.0,
         content_rating="PG-13",
@@ -44,17 +45,17 @@ def _media_item(imdb_id: str) -> MediaItem:
     )
 
 
-def _watched(imdb_id: str) -> WatchedEmbedding:
+def _watched(tmdb_id: str) -> WatchedEmbedding:
     return WatchedEmbedding(
-        imdb_id=imdb_id, vector=[1.0, 0.0], last_viewed_at=datetime(2026, 7, 1)
+        tmdb_id=tmdb_id, vector=[1.0, 0.0], last_viewed_at=datetime(2026, 7, 1)
     )
 
 
-def _candidate(imdb_id: str, vector: list[float]) -> CandidateEmbedding:
-    return CandidateEmbedding(imdb_id=imdb_id, vector=vector, imdb_rating=7.0)
+def _candidate(tmdb_id: str, vector: list[float]) -> CandidateEmbedding:
+    return CandidateEmbedding(tmdb_id=tmdb_id, vector=vector, imdb_rating=7.0)
 
 
-def test_recommend_resolves_imdb_ids_to_media_items() -> None:
+def test_recommend_resolves_tmdb_ids_to_media_items() -> None:
     recommender = DiversityRecommender(
         _FakeWatchHistory([_watched("watched1")]),
         _FakeCandidatePool([_candidate("tt1", [0.0, 1.0])]),
@@ -69,7 +70,7 @@ def test_recommend_resolves_imdb_ids_to_media_items() -> None:
     items = service.recommend()
 
     assert len(items) == 1
-    assert items[0].imdb_id == "tt1"
+    assert items[0].tmdb_id == "tt1"
 
 
 def test_recommend_drops_ids_with_no_media_item() -> None:
@@ -101,7 +102,7 @@ def test_recommend_does_not_repeat_within_a_session() -> None:
     first = service.recommend()
     second = service.recommend()
 
-    assert {i.imdb_id for i in first} != {i.imdb_id for i in second}
+    assert {i.tmdb_id for i in first} != {i.tmdb_id for i in second}
 
 
 def test_reset_clears_the_recently_shown_set() -> None:

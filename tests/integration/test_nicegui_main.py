@@ -31,9 +31,10 @@ from app.services.recommendation import (
 _MAIN_FILE = Path(__file__).resolve().parents[2] / "nicegui_app" / "main.py"
 
 
-def make_item(imdb_id: str, title: str) -> MediaItem:
+def make_item(tmdb_id: str, title: str) -> MediaItem:
     return MediaItem(
-        imdb_id=imdb_id,
+        tmdb_id=tmdb_id,
+        imdb_id=f"tt{tmdb_id}",
         type="movie",
         title=title,
         year=2020,
@@ -51,7 +52,7 @@ async def _aevents(items: list[MediaItem]) -> AsyncIterator[ChatStreamEvent]:
 def make_answer(
     answer: str, items: list[MediaItem] | None = None
 ) -> StreamedChatAnswer:
-    resolved_items = items if items is not None else [make_item("tt1", "Heat")]
+    resolved_items = items if items is not None else [make_item("1", "Heat")]
     return StreamedChatAnswer(
         events=_aevents(resolved_items), answer=answer, items=resolved_items
     )
@@ -72,7 +73,7 @@ def make_titler(title: str = "Heist thrillers with a twist") -> MagicMock:
 def make_diversity_service(items: list[MediaItem] | None = None) -> MagicMock:
     service = MagicMock(spec=DiversityRecommendationService)
     service.recommend.return_value = (
-        items if items is not None else [make_item("tt9", "Paprika")]
+        items if items is not None else [make_item("9", "Paprika")]
     )
     return service
 
@@ -240,7 +241,7 @@ async def test_tonight_chip_sends_its_canned_prompt() -> None:
 @pytest.mark.anyio
 async def test_library_stats_render_counts_from_media_repo() -> None:
     media_repo = MagicMock(spec=QdrantMediaItems)
-    items = [make_item("tt1", "A"), make_item("tt2", "B"), make_item("tt3", "C")]
+    items = [make_item("1", "A"), make_item("2", "B"), make_item("3", "C")]
     items[0].video_resolution = VideoResolution.R4K
     items[1].source_platform = StreamingSource.NETFLIX
     media_repo.all_items.return_value = items
@@ -295,9 +296,9 @@ async def test_clicking_recent_conversation_replays_its_transcript() -> None:
     titler = make_titler()
     titler.title.side_effect = ["Heist thrillers with a twist", "Comfort films"]
     service.chat_with_items_stream.side_effect = [
-        make_answer("1. **Heat** (1995)\nA tense heist.", [make_item("tt1", "Heat")]),
+        make_answer("1. **Heat** (1995)\nA tense heist.", [make_item("1", "Heat")]),
         make_answer(
-            "1. **Amelie** (2001)\nWarm and whimsical.", [make_item("tt2", "Amelie")]
+            "1. **Amelie** (2001)\nWarm and whimsical.", [make_item("2", "Amelie")]
         ),
     ]
     with patch.object(
@@ -395,7 +396,7 @@ async def test_surprise_me_replayed_from_recent_still_shows_its_picks(
     leaving the Recent entry looking like it recommended nothing."""
     media_repo = MagicMock(spec=QdrantMediaItems)
     built = (make_service(), media_repo, make_titler("A change of pace"))
-    diversity_service = make_diversity_service([make_item("tt9", "Paprika")])
+    diversity_service = make_diversity_service([make_item("9", "Paprika")])
     with (
         patch.object(service_cache, "build_recommender_service", return_value=built),
         patch.object(
@@ -424,7 +425,7 @@ async def test_surprise_me_hides_the_text_input_until_new_conversation() -> None
     two."""
     media_repo = MagicMock(spec=QdrantMediaItems)
     built = (make_service(), media_repo, make_titler())
-    diversity_service = make_diversity_service([make_item("tt9", "Paprika")])
+    diversity_service = make_diversity_service([make_item("9", "Paprika")])
     with (
         patch.object(service_cache, "build_recommender_service", return_value=built),
         patch.object(
@@ -454,7 +455,7 @@ async def test_surprise_me_clicked_twice_starts_a_fresh_conversation_each_time(
     sidebar entry never got a sibling for the second pull."""
     media_repo = MagicMock(spec=QdrantMediaItems)
     built = (make_service(), media_repo, make_titler())
-    diversity_service = make_diversity_service([make_item("tt9", "Paprika")])
+    diversity_service = make_diversity_service([make_item("9", "Paprika")])
     with (
         patch.object(service_cache, "build_recommender_service", return_value=built),
         patch.object(
@@ -497,7 +498,7 @@ async def test_new_conversation_clicked_mid_surprise_turn_leaves_input_usable(
 
     def slow_recommend() -> list[MediaItem]:
         time.sleep(0.3)
-        return [make_item("tt9", "Paprika")]
+        return [make_item("9", "Paprika")]
 
     diversity_service.recommend.side_effect = slow_recommend
     with (

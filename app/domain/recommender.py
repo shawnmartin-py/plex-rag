@@ -44,16 +44,16 @@ def _group_docs(
     seen: set[tuple[str, str | None, str | None]] = set()
     for retriever_name, docs in named_sets:
         for doc in docs:
-            imdb_id = str(doc.metadata.get("imdb_id"))
+            tmdb_id = str(doc.metadata.get("tmdb_id"))
             key = (
-                imdb_id,
+                tmdb_id,
                 doc.metadata.get("embedding_type"),
                 doc.metadata.get("section"),
             )
             if key not in seen:
                 seen.add(key)
-                grouped.setdefault(imdb_id, []).append(doc)
-            sources.setdefault(imdb_id, set()).add(retriever_name)
+                grouped.setdefault(tmdb_id, []).append(doc)
+            sources.setdefault(tmdb_id, set()).add(retriever_name)
     return grouped, sources
 
 
@@ -65,25 +65,25 @@ def _format_grouped(grouped: dict[str, list[RetrievedChunk]]) -> str:
     entries = list(grouped.items())
     random.shuffle(entries)
     blocks = []
-    for imdb_id, docs in entries:
+    for tmdb_id, docs in entries:
         ordered = sorted(docs, key=sort_key)
         title = ordered[0].metadata.get("title", "Unknown")
         year = ordered[0].metadata.get("year", "")
         chunks = "\n\n".join(doc.page_content for doc in ordered)
-        blocks.append(f"=== {title} ({year}) [imdb_id: {imdb_id}] ===\n{chunks}")
+        blocks.append(f"=== {title} ({year}) [tmdb_id: {tmdb_id}] ===\n{chunks}")
     return "\n\n---\n\n".join(blocks)
 
 
 def _format_card_heading(
-    index: int, imdb_id: str, grouped: dict[str, list[RetrievedChunk]]
+    index: int, tmdb_id: str, grouped: dict[str, list[RetrievedChunk]]
 ) -> str:
     """Synthesize the numbered heading the model no longer writes itself
     (title/year live on the structured schema's context, not its output) —
     used to build the plain-text `answer` string for the CLI and persisted
     conversation history. The UI never sees this: it renders title/year from
     the matched `MediaItem` and only displays a card's `body_md`."""
-    docs = grouped[imdb_id]
-    title = docs[0].metadata.get("title", imdb_id)
+    docs = grouped[tmdb_id]
+    title = docs[0].metadata.get("title", tmdb_id)
     year = docs[0].metadata.get("year", "")
     return f"{index}. **{title}** ({year})"
 
@@ -92,19 +92,19 @@ def _build_answer(
     result: RecommendationResponse, grouped: dict[str, list[RetrievedChunk]]
 ) -> tuple[str, list[str]]:
     """Turns a generator's structured response into the plain-text `answer`
-    string plus the imdb_ids it actually recommended — dropping any card
-    whose imdb_id the model invented rather than copying from context (same
+    string plus the tmdb_ids it actually recommended — dropping any card
+    whose tmdb_id the model invented rather than copying from context (same
     shape as LLMKnowledgeRetriever's title filter in
     app/adapters/retrievers.py). Shared by `recommend` and
     `recommend_with_context`."""
-    cards = [c for c in result.cards if c.imdb_id in grouped]
-    mentioned_ids = [c.imdb_id for c in cards]
+    cards = [c for c in result.cards if c.tmdb_id in grouped]
+    mentioned_ids = [c.tmdb_id for c in cards]
 
     parts: list[str] = []
     if result.intro:
         parts.append(result.intro)
     for i, card in enumerate(cards, start=1):
-        heading = _format_card_heading(i, card.imdb_id, grouped)
+        heading = _format_card_heading(i, card.tmdb_id, grouped)
         parts.append(f"{heading}\n{card.body_md}")
     if result.closing_note:
         parts.append(result.closing_note)
@@ -121,13 +121,13 @@ def _build_coverage_report(
     recommended: list[CoverageEntry] = []
     dropped: list[CoverageEntry] = []
 
-    for imdb_id, docs in grouped.items():
-        title = str(docs[0].metadata.get("title", imdb_id))
+    for tmdb_id, docs in grouped.items():
+        title = str(docs[0].metadata.get("title", tmdb_id))
         year = str(docs[0].metadata.get("year", ""))
         entry = CoverageEntry(
-            title=title, year=year, sources=frozenset(sources.get(imdb_id, set()))
+            title=title, year=year, sources=frozenset(sources.get(tmdb_id, set()))
         )
-        if imdb_id in mentioned:
+        if tmdb_id in mentioned:
             recommended.append(entry)
         else:
             dropped.append(entry)
@@ -142,12 +142,12 @@ class StreamedAnswer:
     """`events` yields one event per completed section, in generation order —
     a `SectionReady` the moment the generator finishes writing a
     recommendation card, rather than waiting for the whole response. `answer`
-    and `imdb_ids` are only meaningful once `events` has been fully
+    and `tmdb_ids` are only meaningful once `events` has been fully
     consumed."""
 
     events: AsyncIterator[StreamEvent]
     answer: str = ""
-    imdb_ids: list[str] = field(default_factory=list)
+    tmdb_ids: list[str] = field(default_factory=list)
 
 
 class MovieRecommender:
@@ -218,7 +218,7 @@ class MovieRecommender:
         non-streaming path used by the CLI). Boundary detection (deciding when
         a card is finished) is the generator's job now — see
         `GeminiRecommendationGenerator.stream`; this just forwards its events,
-        dropping any card whose imdb_id isn't a real candidate and building
+        dropping any card whose tmdb_id isn't a real candidate and building
         the plain-text `answer` (with headings synthesized from `grouped`) as
         events go by."""
         context, grouped, _sources = await self._retrieve_context(question, history)
@@ -228,12 +228,12 @@ class MovieRecommender:
             card_index = 0
             async for event in self._generator.stream(question, context, history):
                 if isinstance(event, SectionReady):
-                    if event.imdb_id not in grouped:
+                    if event.tmdb_id not in grouped:
                         continue
                     card_index += 1
-                    heading = _format_card_heading(card_index, event.imdb_id, grouped)
+                    heading = _format_card_heading(card_index, event.tmdb_id, grouped)
                     answer_parts.append(f"{heading}\n{event.body_md}")
-                    answer.imdb_ids.append(event.imdb_id)
+                    answer.tmdb_ids.append(event.tmdb_id)
                     yield event
                 else:
                     if event.text:
