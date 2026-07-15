@@ -1,0 +1,19 @@
+---
+services:
+  api:
+    build: .
+    ports:
+      - "8100:8100"
+    env_file:
+      - .env
+    environment:
+      # This repo never runs its own Qdrant (plex-ingest owns writes — see
+      # CLAUDE.md). host.docker.internal reaches whatever Qdrant is already
+      # running on the host, whether that's plex-ingest's own docker-compose
+      # stack or a native install, without coupling to plex-ingest's compose
+      # network/project name.
+      QDRANT_URL: http://host.docker.internal:6333
+    extra_hosts:
+      # host.docker.internal is automatic on Docker Desktop (macOS/Windows);
+      # this makes it resolve on Linux hosts too.
+      - "host.docker.internal:host-gateway"

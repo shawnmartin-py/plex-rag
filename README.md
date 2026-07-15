@@ -143,6 +143,37 @@ plex-rag surprise
 plex-rag check-imdb tt0111161
 ```
 
+### API
+
+```bash
+make api
+```
+
+Opens at `http://localhost:8100` — see `api_app/main.py` for the endpoints
+(`/chat`, `/chat/stream`, `/chat/reset`, `/surprise`). This is what the
+`plex-tvos` client talks to.
+
+### Running the API in Docker
+
+For deploying just the FastAPI service (e.g. to a machine on the same LAN as
+the tvOS client), without the CLI or the NiceGUI web UI:
+
+```bash
+make api-docker
+```
+
+This builds an image containing only `app/` and `api_app/` (the NiceGUI
+front end isn't included) and runs it via `docker-compose.yml`, publishing
+port `8100` on the host so the tvOS app can reach it. It reads the same
+`.env` file as `make api`.
+
+This repo never runs its own Qdrant — `plex-ingest` owns writes (see
+`CLAUDE.md`). The container's `QDRANT_URL` is overridden in
+`docker-compose.yml` to `http://host.docker.internal:6333` so it reaches
+whatever Qdrant is already running on the host (e.g. `plex-ingest`'s own
+`docker compose up`), rather than starting a second, empty one. If Qdrant
+lives somewhere else, override `QDRANT_URL` in `docker-compose.yml`.
+
 ## Development
 
 ```bash
