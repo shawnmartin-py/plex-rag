@@ -12,8 +12,8 @@ from app.adapters.retrievers import (
 )
 
 
-def make_doc(imdb_id: str, title: str) -> Document:
-    return Document(page_content=f"Title: {title}", metadata={"imdb_id": imdb_id})
+def make_doc(tmdb_id: str, title: str) -> Document:
+    return Document(page_content=f"Title: {title}", metadata={"tmdb_id": tmdb_id})
 
 
 # --- HyDEVectorRetriever ---
@@ -33,7 +33,7 @@ def hyde_retriever() -> tuple[HyDEVectorRetriever, MagicMock, MagicMock, MagicMo
     )
     mock_embeddings.aembed_documents = AsyncMock(return_value=[[0.1, 0.2, 0.3]])
     mock_vector_store.asimilarity_search_by_vector = AsyncMock(
-        return_value=[make_doc("tt001", "Parasite")]
+        return_value=[make_doc("001", "Parasite")]
     )
     return retriever, mock_vector_store, mock_embeddings, mock_chain
 
@@ -85,7 +85,7 @@ async def test_hyde_retriever_returns_docs(
     retriever, _, _, _ = hyde_retriever
     docs = await retriever.retrieve("recommend a thriller")
     assert len(docs) == 1
-    assert docs[0].metadata["imdb_id"] == "tt001"
+    assert docs[0].metadata["tmdb_id"] == "001"
 
 
 async def test_hyde_retriever_respects_k() -> None:
@@ -109,9 +109,9 @@ async def test_hyde_retriever_respects_k() -> None:
 @pytest.fixture
 def doc_by_title() -> dict[str, Document]:
     return {
-        "parasite": make_doc("tt001", "Parasite"),
-        "oldboy": make_doc("tt002", "Oldboy"),
-        "the handmaiden": make_doc("tt003", "The Handmaiden"),
+        "parasite": make_doc("001", "Parasite"),
+        "oldboy": make_doc("002", "Oldboy"),
+        "the handmaiden": make_doc("003", "The Handmaiden"),
     }
 
 
@@ -156,7 +156,7 @@ async def test_llm_retriever_skips_unknown_titles(
     )
     docs = await retriever.retrieve("query")
     assert len(docs) == 1
-    assert docs[0].metadata["imdb_id"] == "tt001"
+    assert docs[0].metadata["tmdb_id"] == "001"
 
 
 async def test_llm_retriever_passes_question_and_movie_list(
@@ -180,7 +180,7 @@ def make_enrichment_retriever(
     mock_embeddings = MagicMock()
     mock_embeddings.aembed_documents = AsyncMock(return_value=[[0.1, 0.2, 0.3]])
     mock_vector_store.asimilarity_search_by_vector = AsyncMock(
-        return_value=[make_doc("tt001", "Parasite")]
+        return_value=[make_doc("001", "Parasite")]
     )
     retriever = LLMEnrichmentRetriever(
         mock_vector_store, mock_embeddings, k=k, filter_by_type=filter_by_type
@@ -232,7 +232,7 @@ async def test_enrichment_retriever_returns_docs_from_vector_store() -> None:
     retriever, _, _ = make_enrichment_retriever()
     docs = await retriever.retrieve("something Kubrickian")
     assert len(docs) == 1
-    assert docs[0].metadata["imdb_id"] == "tt001"
+    assert docs[0].metadata["tmdb_id"] == "001"
 
 
 # --- DirectSynopsisRetriever ---
@@ -245,7 +245,7 @@ def make_synopsis_retriever(
     mock_embeddings = MagicMock()
     mock_embeddings.aembed_documents = AsyncMock(return_value=[[0.1, 0.2, 0.3]])
     mock_vector_store.asimilarity_search_by_vector = AsyncMock(
-        return_value=[make_doc("tt001", "Parasite")]
+        return_value=[make_doc("001", "Parasite")]
     )
     retriever = DirectSynopsisRetriever(mock_vector_store, mock_embeddings, k=k)
     return retriever, mock_vector_store, mock_embeddings
@@ -281,4 +281,4 @@ async def test_synopsis_retriever_returns_docs_from_vector_store() -> None:
     retriever, _, _ = make_synopsis_retriever()
     docs = await retriever.retrieve("a heist film")
     assert len(docs) == 1
-    assert docs[0].metadata["imdb_id"] == "tt001"
+    assert docs[0].metadata["tmdb_id"] == "001"

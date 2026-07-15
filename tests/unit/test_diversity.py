@@ -77,26 +77,26 @@ def _watched_list(draw: st.DrawFn, max_size: int = 10) -> list[WatchedEmbedding]
     ]
 
 
-def _watched(imdb_id: str, vector: list[float], days_ago: float) -> WatchedEmbedding:
+def _watched(tmdb_id: str, vector: list[float], days_ago: float) -> WatchedEmbedding:
     return WatchedEmbedding(
-        imdb_id=imdb_id, vector=vector, last_viewed_at=_NOW - timedelta(days=days_ago)
+        tmdb_id=tmdb_id, vector=vector, last_viewed_at=_NOW - timedelta(days=days_ago)
     )
 
 
 def _candidate(
-    imdb_id: str, vector: list[float], imdb_rating: float | None = 7.0
+    tmdb_id: str, vector: list[float], imdb_rating: float | None = 7.0
 ) -> CandidateEmbedding:
-    return CandidateEmbedding(imdb_id=imdb_id, vector=vector, imdb_rating=imdb_rating)
+    return CandidateEmbedding(tmdb_id=tmdb_id, vector=vector, imdb_rating=imdb_rating)
 
 
-def _angled_candidate(imdb_id: str, degrees: float) -> CandidateEmbedding:
+def _angled_candidate(tmdb_id: str, degrees: float) -> CandidateEmbedding:
     """A 2D unit vector at `degrees` from the watched vector [1, 0] -- gives a
     candidate a precise, predictable cosine distance (1 - cos(degrees)) from an
     aversion vector built from a single watch at [1, 0], without hand-computing
     distances directly."""
     theta = math.radians(degrees)
     return CandidateEmbedding(
-        imdb_id=imdb_id, vector=[math.cos(theta), math.sin(theta)], imdb_rating=7.0
+        tmdb_id=tmdb_id, vector=[math.cos(theta), math.sin(theta)], imdb_rating=7.0
     )
 
 
@@ -180,7 +180,7 @@ def test_build_aversion_vector_weights_recent_watch_more_heavily() -> None:
 def test_distance_band_selects_percentile_slice() -> None:
     scored = [(_candidate(f"tt{i}", [float(i)]), float(i)) for i in range(10)]
     banded = _distance_band(scored, low_percentile=0.7, high_percentile=0.9)
-    assert [c.imdb_id for c, _ in banded] == ["tt7", "tt8"]
+    assert [c.tmdb_id for c, _ in banded] == ["tt7", "tt8"]
 
 
 def test_distance_band_empty_input_returns_empty() -> None:
@@ -223,7 +223,7 @@ def test_softmax_sample_never_repeats_a_candidate() -> None:
     banded = [(_candidate(f"tt{i}", [float(i)]), float(i)) for i in range(5)]
     rng = random.Random(1)
     pool = _softmax_sample(banded, pool_size=5, temperature=0.5, rng=rng)
-    assert len({c.imdb_id for c in pool}) == 5
+    assert len({c.tmdb_id for c in pool}) == 5
 
 
 def test_softmax_sample_caps_at_available_candidates() -> None:
@@ -238,7 +238,7 @@ def test_softmax_sample_caps_at_available_candidates() -> None:
 
 def test_mmr_select_respects_k() -> None:
     pool = [_candidate(f"tt{i}", [float(i), 0.0]) for i in range(5)]
-    distances = {c.imdb_id: 1.0 for c in pool}
+    distances = {c.tmdb_id: 1.0 for c in pool}
     selected = _mmr_select(pool, distances, k=3, diversity_weight=0.5)
     assert len(selected) == 3
 
@@ -252,7 +252,7 @@ def test_mmr_select_prefers_diverse_candidates_over_near_duplicates() -> None:
     b = _candidate("b", [0.0, 1.0])
     distances = {"a": 1.0, "a2": 1.0, "b": 1.0}
     selected = _mmr_select([a, a2, b], distances, k=2, diversity_weight=0.1)
-    ids = {c.imdb_id for c in selected}
+    ids = {c.tmdb_id for c in selected}
     assert "b" in ids
     assert not {"a", "a2"} <= ids
 
@@ -269,10 +269,10 @@ def test_mmr_select_never_exceeds_k_or_duplicates_a_candidate(
     diversity_weight: float,
     data: st.DataObject,
 ) -> None:
-    aversion_distance = {c.imdb_id: data.draw(_FLOATS) for c in candidates}
+    aversion_distance = {c.tmdb_id: data.draw(_FLOATS) for c in candidates}
     selected = _mmr_select(candidates, aversion_distance, k, diversity_weight)
     assert len(selected) <= min(k, len(candidates))
-    ids = [c.imdb_id for c in selected]
+    ids = [c.tmdb_id for c in selected]
     assert len(ids) == len(set(ids))
 
 
@@ -303,7 +303,7 @@ def test_recommend_raises_when_no_watch_history() -> None:
         recommender.recommend()
 
 
-def test_recommend_excludes_given_imdb_ids() -> None:
+def test_recommend_excludes_given_tmdb_ids() -> None:
     watched = [_watched("watched1", [1.0, 0.0], days_ago=1)]
     candidates = [
         _candidate("tt1", [0.0, 1.0]),
@@ -390,7 +390,7 @@ def _recommend_with_seed(outlier_wildcard_probability: float, seed: int) -> list
 def test_recommend_never_surfaces_outlier_tail_when_probability_is_zero() -> None:
     for seed in range(20):
         result = _recommend_with_seed(outlier_wildcard_probability=0.0, seed=seed)
-        assert not any(imdb_id.startswith("outlier") for imdb_id in result)
+        assert not any(tmdb_id.startswith("outlier") for tmdb_id in result)
 
 
 def test_recommend_can_surface_outlier_tail_when_probability_is_one() -> None:
@@ -400,8 +400,8 @@ def test_recommend_can_surface_outlier_tail_when_probability_is_one() -> None:
     # distant) candidate available.
     surfaced = any(
         any(
-            imdb_id.startswith("outlier")
-            for imdb_id in _recommend_with_seed(
+            tmdb_id.startswith("outlier")
+            for tmdb_id in _recommend_with_seed(
                 outlier_wildcard_probability=1.0, seed=seed
             )
         )
@@ -416,8 +416,8 @@ def test_recommend_surfaces_outlier_tail_less_often_at_low_probability() -> None
             1
             for seed in range(60)
             if any(
-                imdb_id.startswith("outlier")
-                for imdb_id in _recommend_with_seed(probability, seed)
+                tmdb_id.startswith("outlier")
+                for tmdb_id in _recommend_with_seed(probability, seed)
             )
         )
 

@@ -161,7 +161,7 @@ def render_recommendations(
     Items are paired to numbered sections positionally — no title
     text-matching. The first card gets a "Top pick" eyebrow, since the
     generator is instructed to rank best match first. `accents` maps
-    imdb_id -> key-light color for cards whose poster accent is known.
+    tmdb_id -> key-light color for cards whose poster accent is known.
     """
     sections = parse_sections(response)
 
@@ -180,7 +180,7 @@ def render_recommendations(
                     item,
                     strip_section_heading(text),
                     top_pick=item_idx == 0,
-                    accent=(accents or {}).get(item.imdb_id),
+                    accent=(accents or {}).get(item.tmdb_id),
                 )
                 item_idx += 1
             else:
@@ -209,7 +209,7 @@ def render_surprise_results(
                 item,
                 item.description or "",
                 top_pick=idx == 0,
-                accent=(accents or {}).get(item.imdb_id),
+                accent=(accents or {}).get(item.tmdb_id),
             )
 
 

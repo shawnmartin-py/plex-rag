@@ -114,7 +114,7 @@ def _mmr_select(
     while remaining and len(selected) < k:
 
         def mmr_score(c: CandidateEmbedding) -> float:
-            relevance = aversion_distance[c.imdb_id]
+            relevance = aversion_distance[c.tmdb_id]
             diversity_penalty = (
                 max(cosine_similarity(c.vector, s.vector) for s in selected)
                 if selected
@@ -183,7 +183,7 @@ class DiversityRecommender:
         self._rng = rng or random.Random()  # noqa: S311 — recommendation variety, not security
 
     def recommend(self, exclude: frozenset[str] = frozenset()) -> list[str]:
-        """Returns up to `k` imdb_ids. Raises `NoWatchHistoryError` if there's no
+        """Returns up to `k` tmdb_ids. Raises `NoWatchHistoryError` if there's no
         recent watch history to build an aversion vector from — the caller decides
         how to surface that (this domain layer does no formatting/rendering)."""
         watched = self._watch_history.recent()
@@ -200,7 +200,7 @@ class DiversityRecommender:
             # (stripped under -O, and flagged by ruff's S101).
             raise NoWatchHistoryError("No recent watch history available.")
 
-        candidates = [c for c in self._candidates.all() if c.imdb_id not in exclude]
+        candidates = [c for c in self._candidates.all() if c.tmdb_id not in exclude]
         if self._min_imdb_rating is not None:
             candidates = [
                 c
@@ -223,8 +223,8 @@ class DiversityRecommender:
         # calls share an item when the candidate pool is tiny (well under the
         # library sizes this ships against) -- drop any such overlap so a
         # candidate is never eligible as both a core pick and a wildcard pick.
-        core_ids = {c.imdb_id for c, _ in core}
-        tail = [pair for pair in tail if pair[0].imdb_id not in core_ids]
+        core_ids = {c.tmdb_id for c, _ in core}
+        tail = [pair for pair in tail if pair[0].tmdb_id not in core_ids]
         if not core and not tail:
             core = scored
 
@@ -240,8 +240,8 @@ class DiversityRecommender:
                 _softmax_sample(tail, 1, self._softmax_temperature, self._rng)[0]
             )
 
-        aversion_distance = {c.imdb_id: d for c, d in core + tail}
+        aversion_distance = {c.tmdb_id: d for c, d in core + tail}
         selected = _mmr_select(
             pool, aversion_distance, self._k, self._mmr_diversity_weight
         )
-        return [c.imdb_id for c in selected]
+        return [c.tmdb_id for c in selected]

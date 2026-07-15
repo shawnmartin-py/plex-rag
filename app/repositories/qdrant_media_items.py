@@ -35,6 +35,7 @@ def _hdr_formats_or_empty(raw: Any) -> list[HdrFormat]:
 def _media_item_from_metadata(metadata: dict[str, Any]) -> MediaItem:
     genres = metadata["genres"]
     return MediaItem(
+        tmdb_id=metadata["tmdb_id"],
         imdb_id=metadata["imdb_id"],
         type=metadata["type"],
         title=metadata["title"],
@@ -60,12 +61,12 @@ class QdrantMediaItems:
 
     def __init__(self, synopsis_documents: list[Document]) -> None:
         self._by_id = {
-            doc.metadata["imdb_id"]: _media_item_from_metadata(doc.metadata)
+            doc.metadata["tmdb_id"]: _media_item_from_metadata(doc.metadata)
             for doc in synopsis_documents
         }
 
-    def get_by_id(self, imdb_id: str) -> MediaItem | None:
-        return self._by_id.get(imdb_id)
+    def get_by_id(self, tmdb_id: str) -> MediaItem | None:
+        return self._by_id.get(tmdb_id)
 
     def all_items(self) -> list[MediaItem]:
         """Every synced item — powers the web UI's library snapshot. Cheap:

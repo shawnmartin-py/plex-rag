@@ -107,6 +107,7 @@ _TONIGHT_PROMPTS: dict[str, str] = {
 
 def _item_to_dict(item: MediaItem) -> dict[str, Any]:
     return {
+        "tmdb_id": item.tmdb_id,
         "imdb_id": item.imdb_id,
         "type": item.type,
         "title": item.title,
@@ -263,7 +264,7 @@ async def index(client: Client) -> None:
                 items = [_dict_to_item(d) for d in msg.get("items", [])]
                 accent_results = await asyncio.gather(*(_accent_for(i) for i in items))
                 accents = dict(
-                    zip((i.imdb_id for i in items), accent_results, strict=True)
+                    zip((i.tmdb_id for i in items), accent_results, strict=True)
                 )
                 if msg.get("is_surprise"):
                     render_surprise_results(body, msg["content"], items, accents)
@@ -605,7 +606,7 @@ async def index(client: Client) -> None:
 
         spinner.delete()
         accent_results = await asyncio.gather(*(_accent_for(i) for i in items))
-        accents = dict(zip((i.imdb_id for i in items), accent_results, strict=True))
+        accents = dict(zip((i.tmdb_id for i in items), accent_results, strict=True))
         if state["turn_token"] != my_token:
             return
         render_surprise_results(assistant_body, answer, items, accents)

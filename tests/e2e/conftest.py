@@ -74,6 +74,7 @@ TEST_DOCS = [
             "leading to an explosive confrontation about class and greed."
         ),
         metadata={
+            "tmdb_id": "496243",
             "imdb_id": "tt6751668",
             "title": "Parasite",
             "year": 2019,
@@ -89,6 +90,7 @@ TEST_DOCS = [
             "five days to find out why."
         ),
         metadata={
+            "tmdb_id": "670",
             "imdb_id": "tt0364569",
             "title": "Oldboy",
             "year": 2003,
@@ -104,6 +106,7 @@ TEST_DOCS = [
             "involved in a plot to defraud her."
         ),
         metadata={
+            "tmdb_id": "290098",
             "imdb_id": "tt4016934",
             "title": "The Handmaiden",
             "year": 2016,

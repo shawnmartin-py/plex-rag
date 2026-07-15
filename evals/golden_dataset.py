@@ -17,6 +17,7 @@ from langchain_core.documents import Document
 
 @dataclass(frozen=True)
 class _Film:
+    tmdb_id: str
     imdb_id: str
     title: str
     year: int
@@ -31,6 +32,7 @@ class _Film:
 
 def _documents(film: _Film) -> list[Document]:
     base_metadata = {
+        "tmdb_id": film.tmdb_id,
         "imdb_id": film.imdb_id,
         "type": "movie",
         "title": film.title,
@@ -67,6 +69,7 @@ def _documents(film: _Film) -> list[Document]:
 
 _FILMS = [
     _Film(
+        tmdb_id="496243",
         imdb_id="tt6751668",
         title="Parasite",
         year=2019,
@@ -101,6 +104,7 @@ _FILMS = [
         ),
     ),
     _Film(
+        tmdb_id="670",
         imdb_id="tt0364569",
         title="Oldboy",
         year=2003,
@@ -132,6 +136,7 @@ _FILMS = [
         ),
     ),
     _Film(
+        tmdb_id="290098",
         imdb_id="tt4016934",
         title="The Handmaiden",
         year=2016,
@@ -162,6 +167,7 @@ _FILMS = [
         ),
     ),
     _Film(
+        tmdb_id="244786",
         imdb_id="tt2582802",
         title="Whiplash",
         year=2014,
@@ -191,6 +197,7 @@ _FILMS = [
         ),
     ),
     _Film(
+        tmdb_id="376867",
         imdb_id="tt4975722",
         title="Moonlight",
         year=2016,
@@ -219,6 +226,7 @@ _FILMS = [
         ),
     ),
     _Film(
+        tmdb_id="9693",
         imdb_id="tt0206634",
         title="Children of Men",
         year=2006,
@@ -249,6 +257,7 @@ _FILMS = [
         ),
     ),
     _Film(
+        tmdb_id="220289",
         imdb_id="tt2866360",
         title="Coherence",
         year=2013,
@@ -278,6 +287,7 @@ _FILMS = [
         ),
     ),
     _Film(
+        tmdb_id="394117",
         imdb_id="tt5649144",
         title="The Florida Project",
         year=2017,
@@ -309,6 +319,7 @@ _FILMS = [
         ),
     ),
     _Film(
+        tmdb_id="335984",
         imdb_id="tt1856101",
         title="Blade Runner 2049",
         year=2017,
@@ -340,6 +351,7 @@ _FILMS = [
         ),
     ),
     _Film(
+        tmdb_id="843",
         imdb_id="tt0118694",
         title="In the Mood for Love",
         year=2000,

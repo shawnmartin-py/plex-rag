@@ -79,8 +79,8 @@ class GeminiConversationTitler(ConversationTitler):
 
 _RECOMMENDATION_GUIDELINES = (
     "- Recommend only movies from the context above. Never suggest anything outside "
-    "it. Each card's imdb_id must be copied exactly from that film's context block "
-    "(`[imdb_id: ...]`).\n"
+    "it. Each card's tmdb_id must be copied exactly from that film's context block "
+    "(`[tmdb_id: ...]`).\n"
     "- Rank recommendations by how well they match the request — best match first.\n"
     "- For each recommendation, explain specifically why it fits: reference themes, "
     "tone, pacing, director style, or cultural context relevant to the request. Avoid "
@@ -99,8 +99,8 @@ _RECOMMENDATION_GUIDELINES = (
 
 _SPOILER_FREE_GUIDELINES = (
     "- Recommend only movies from the context above. Never suggest anything outside "
-    "it. Each card's imdb_id must be copied exactly from that film's context block "
-    "(`[imdb_id: ...]`).\n"
+    "it. Each card's tmdb_id must be copied exactly from that film's context block "
+    "(`[tmdb_id: ...]`).\n"
     "- Rank recommendations by how well they match the request — best match first.\n"
     "- For each recommendation, explain why it fits using only genre, tone, pacing, "
     "director style, cast, or cultural context. Avoid generic praise.\n"
@@ -195,7 +195,7 @@ class GeminiRecommendationGenerator(RecommendationGenerator):
                 intro_flushed = True
             while finalized < len(last.cards) - 1:
                 card = last.cards[finalized]
-                yield SectionReady(imdb_id=card.imdb_id, body_md=card.body_md)
+                yield SectionReady(tmdb_id=card.tmdb_id, body_md=card.body_md)
                 finalized += 1
 
         if last is None:
@@ -204,7 +204,7 @@ class GeminiRecommendationGenerator(RecommendationGenerator):
             yield TextDelta(text=last.intro)
         while finalized < len(last.cards):
             card = last.cards[finalized]
-            yield SectionReady(imdb_id=card.imdb_id, body_md=card.body_md)
+            yield SectionReady(tmdb_id=card.tmdb_id, body_md=card.body_md)
             finalized += 1
         if last.closing_note:
             yield TextDelta(text=last.closing_note)

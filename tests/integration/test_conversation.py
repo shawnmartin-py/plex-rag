@@ -111,9 +111,10 @@ async def _aevents(events: list[StreamEvent]) -> AsyncIterator[StreamEvent]:
         yield event
 
 
-def _make_media_item(imdb_id: str) -> MediaItem:
+def _make_media_item(tmdb_id: str) -> MediaItem:
     return MediaItem(
-        imdb_id=imdb_id,
+        tmdb_id=tmdb_id,
+        imdb_id=f"tt{tmdb_id}",
         type="movie",
         title="Parasite",
         year=2019,
@@ -130,7 +131,7 @@ async def test_chat_with_items_stream_passes_through_text_deltas(
         return_value=StreamedAnswer(
             events=_aevents([TextDelta(text="Hello there.")]),
             answer="Hello there.",
-            imdb_ids=[],
+            tmdb_ids=[],
         )
     )
     service = ConversationalRecommendationService(recommender)
@@ -143,12 +144,12 @@ async def test_chat_with_items_stream_passes_through_text_deltas(
 async def test_chat_with_items_stream_resolves_section_ready_to_card_ready(
     recommender: MagicMock,
 ) -> None:
-    item = _make_media_item("tt001")
+    item = _make_media_item("001")
     recommender.recommend_stream = AsyncMock(
         return_value=StreamedAnswer(
-            events=_aevents([SectionReady(imdb_id="tt001", body_md="Great pick.")]),
+            events=_aevents([SectionReady(tmdb_id="001", body_md="Great pick.")]),
             answer="1. Parasite\nGreat pick.",
-            imdb_ids=["tt001"],
+            tmdb_ids=["001"],
         )
     )
     service = ConversationalRecommendationService(recommender)
@@ -159,7 +160,7 @@ async def test_chat_with_items_stream_resolves_section_ready_to_card_ready(
     events = [event async for event in streamed.events]
 
     assert events == [CardReady(item=item, body_md="Great pick.")]
-    media_repo.get_by_id.assert_called_once_with("tt001")
+    media_repo.get_by_id.assert_called_once_with("001")
 
 
 async def test_chat_with_items_stream_skips_unresolved_section(
@@ -167,9 +168,9 @@ async def test_chat_with_items_stream_skips_unresolved_section(
 ) -> None:
     recommender.recommend_stream = AsyncMock(
         return_value=StreamedAnswer(
-            events=_aevents([SectionReady(imdb_id="tt999", body_md="Unknown film.")]),
+            events=_aevents([SectionReady(tmdb_id="999", body_md="Unknown film.")]),
             answer="Unknown film.",
-            imdb_ids=["tt999"],
+            tmdb_ids=["999"],
         )
     )
     service = ConversationalRecommendationService(recommender)
@@ -186,12 +187,12 @@ async def test_chat_with_items_stream_skips_unresolved_section(
 async def test_chat_with_items_stream_resolves_items_after_completion(
     recommender: MagicMock,
 ) -> None:
-    item = _make_media_item("tt001")
+    item = _make_media_item("001")
     recommender.recommend_stream = AsyncMock(
         return_value=StreamedAnswer(
-            events=_aevents([SectionReady(imdb_id="tt001", body_md="Great pick.")]),
+            events=_aevents([SectionReady(tmdb_id="001", body_md="Great pick.")]),
             answer="Parasite is great.",
-            imdb_ids=["tt001"],
+            tmdb_ids=["001"],
         )
     )
     service = ConversationalRecommendationService(recommender)
@@ -211,7 +212,7 @@ async def test_chat_with_items_stream_appends_to_history_after_completion(
 ) -> None:
     recommender.recommend_stream = AsyncMock(
         return_value=StreamedAnswer(
-            events=_aevents([TextDelta(text="answer")]), answer="answer", imdb_ids=[]
+            events=_aevents([TextDelta(text="answer")]), answer="answer", tmdb_ids=[]
         )
     )
     service = ConversationalRecommendationService(recommender)

@@ -93,7 +93,7 @@ def load_synopsis_documents(
     ]
 
 
-def _as_flat_vector(vector: object, imdb_id: str) -> list[float]:
+def _as_flat_vector(vector: object, tmdb_id: str) -> list[float]:
     """Both `media_items` and `watch_history` use a single unnamed vector per point
     (see docs/vector-store-contract.md) — never Qdrant's named/multi-vector shape.
     Narrows qdrant-client's `VectorStruct` union to `list[float]` for mypy and fails
@@ -102,7 +102,7 @@ def _as_flat_vector(vector: object, imdb_id: str) -> list[float]:
         isinstance(v, float | int) for v in vector
     ):
         msg = (
-            f"Expected a flat vector for imdb_id={imdb_id!r}, got {type(vector)!r} — "
+            f"Expected a flat vector for tmdb_id={tmdb_id!r}, got {type(vector)!r} — "
             "named/multi-vector collection? See docs/vector-store-contract.md."
         )
         raise TypeError(msg)
@@ -112,7 +112,7 @@ def _as_flat_vector(vector: object, imdb_id: str) -> list[float]:
 def load_synopsis_vectors(
     vector_store: QdrantVectorStore, collection_name: str
 ) -> list[CandidateEmbedding]:
-    """Every embedding_type=synopsis point's vector, keyed by imdb_id, for the
+    """Every embedding_type=synopsis point's vector, keyed by tmdb_id, for the
     diversity recommender's candidate pool. `media_items` already only contains
     unwatched movies (plex-ingest's own scope), so no separate "exclude watched"
     filter belongs here — see docs/pipeline-design.md."""
@@ -133,11 +133,11 @@ def load_synopsis_vectors(
     for p in points:
         if p.payload is None:
             continue
-        imdb_id = p.payload["metadata"]["imdb_id"]
+        tmdb_id = p.payload["metadata"]["tmdb_id"]
         result.append(
             CandidateEmbedding(
-                imdb_id=imdb_id,
-                vector=_as_flat_vector(p.vector, imdb_id),
+                tmdb_id=tmdb_id,
+                vector=_as_flat_vector(p.vector, tmdb_id),
                 imdb_rating=p.payload["metadata"].get("imdb_rating"),
             )
         )
@@ -164,6 +164,24 @@ def imdb_id_exists(url: str, collection_name: str, imdb_id: str) -> bool:
     return count.count > 0
 
 
+def tmdb_id_exists(url: str, collection_name: str, tmdb_id: str) -> bool:
+    """`imdb_id_exists`'s counterpart for the primary key — used by the CLI's
+    `check-tmdb` command. The value is always matched as a string: tmdb ids are
+    numeric-looking but stringly-typed everywhere on the wire (see
+    docs/vector-store-contract.md), and an int MatchValue would never match."""
+    client = _connect_and_validate(url, collection_name)
+    count = client.count(
+        collection_name=collection_name,
+        count_filter=Filter(
+            must=[
+                FieldCondition(key="metadata.tmdb_id", match=MatchValue(value=tmdb_id))
+            ]
+        ),
+        exact=True,
+    )
+    return count.count > 0
+
+
 def load_watch_history_points(
     vector_store: QdrantVectorStore, collection_name: str
 ) -> list[WatchedEmbedding]:
@@ -181,11 +199,11 @@ def load_watch_history_points(
     for p in points:
         if p.payload is None:
             continue
-        imdb_id = p.payload["metadata"]["imdb_id"]
+        tmdb_id = p.payload["metadata"]["tmdb_id"]
         result.append(
             WatchedEmbedding(
-                imdb_id=imdb_id,
-                vector=_as_flat_vector(p.vector, imdb_id),
+                tmdb_id=tmdb_id,
+                vector=_as_flat_vector(p.vector, tmdb_id),
                 last_viewed_at=datetime.fromisoformat(
                     p.payload["metadata"]["last_viewed_at"]
                 ),
