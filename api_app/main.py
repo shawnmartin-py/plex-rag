@@ -1,12 +1,16 @@
 import asyncio
 import sys
+from collections.abc import AsyncIterator
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 
 from api_app.schemas import (
     ChatRequest,
     ChatResponse,
+    ChatStreamCardOut,
+    ChatStreamTextOut,
     HealthResponse,
     MediaItemOut,
     ResetRequest,
@@ -15,10 +19,12 @@ from api_app.schemas import (
 from api_app.service_cache import get_diversity_service, get_service, reset_session
 from app.config import QDRANT_COLLECTION, QDRANT_URL
 from app.domain.diversity import NoWatchHistoryError
+from app.domain.ports import TextDelta
 from app.repositories.vector_store import (
     QdrantUnavailableError,
     ensure_qdrant_reachable,
 )
+from app.services.recommendation import CardReady
 
 # Distinct from NiceGUI's default 8080 so `plex-rag-web` and `plex-rag-api`
 # can run side by side against the same Qdrant collection.
@@ -43,6 +49,42 @@ async def chat(request: ChatRequest) -> ChatResponse:
     answer, items = await service.chat_with_items(message, media_repo)
     out_items = [MediaItemOut.from_domain(i) for i in items]
     return ChatResponse(answer=answer, items=out_items)
+
+
+# Streaming counterpart to /chat, for the tvOS client's progressive-card UX
+# (see plex-tvos/CLAUDE.md). Newline-delimited JSON, one ChatStreamTextOut or
+# ChatStreamCardOut per line, in generation order — the same
+# chat_with_items_stream() the NiceGUI app already uses for its own live
+# transcript, just serialized over the wire instead of consumed in-process.
+# A CardReady with an unresolved item (tmdb_id didn't resolve to a
+# MediaItem) is skipped rather than sent, same as the NiceGUI transcript
+# skips rendering it.
+@app.post("/chat/stream")
+async def chat_stream(request: ChatRequest) -> StreamingResponse:
+    message = request.message.strip()
+    if not message:
+        raise HTTPException(status_code=422, detail="message must not be empty")
+    service, media_repo, _titler = await get_service(
+        request.session_id, request.spoiler_free
+    )
+    streamed = await service.chat_with_items_stream(message, media_repo)
+
+    async def ndjson() -> AsyncIterator[bytes]:
+        async for event in streamed.events:
+            out: ChatStreamTextOut | ChatStreamCardOut
+            if isinstance(event, TextDelta):
+                if not event.text:
+                    continue
+                out = ChatStreamTextOut(text=event.text)
+            elif isinstance(event, CardReady):
+                if event.item is None:
+                    continue
+                out = ChatStreamCardOut(item=MediaItemOut.from_domain(event.item))
+            else:
+                continue
+            yield out.model_dump_json().encode() + b"\n"
+
+    return StreamingResponse(ndjson(), media_type="application/x-ndjson")
 
 
 @app.post("/chat/reset", response_model=ResetResponse)

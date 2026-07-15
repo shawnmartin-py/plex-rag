@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel
 
 from app.models.media_item import MediaItem
@@ -52,6 +54,21 @@ class MediaItemOut(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     items: list[MediaItemOut]
+
+
+# Wire events for POST /chat/stream — one of these, JSON-encoded, per
+# newline-delimited line. `type` is a discriminator the tvOS client switches
+# on. Mirrors app.services.recommendation.ChatStreamEvent (TextDelta /
+# CardReady) one-for-one, just with the tmdb_id already resolved to a full
+# MediaItemOut the way ChatResponse.items already is.
+class ChatStreamTextOut(BaseModel):
+    type: Literal["text"] = "text"
+    text: str
+
+
+class ChatStreamCardOut(BaseModel):
+    type: Literal["card"] = "card"
+    item: MediaItemOut
 
 
 class ResetRequest(BaseModel):

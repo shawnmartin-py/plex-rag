@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help install chat web test test-unit test-integration test-e2e typecheck check pre-commit clear-history eval-faithfulness
+.PHONY: help install chat web api test test-unit test-integration test-e2e typecheck check pre-commit clear-history eval-faithfulness
 
 help: ## Show this list of commands
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
@@ -14,6 +14,9 @@ chat: ## Start an interactive recommendation session in the terminal
 
 web: ## Start the NiceGUI web UI at http://localhost:8080
 	plex-rag-web
+
+api: ## Start the FastAPI service at http://localhost:8100
+	plex-rag-api
 
 clear-history: ## Wipe the web UI's recent-conversations history
 	plex-rag clear-history
