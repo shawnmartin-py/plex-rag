@@ -100,6 +100,7 @@ Create a `.env` file in the project root (or export these in your shell):
 | `QDRANT_COLLECTION` | No | Qdrant collection name (default: `media_items`) |
 | `QDRANT_WATCH_HISTORY_COLLECTION` | No | Qdrant collection for surprise-me/diversity mode (default: `watch_history`) — feature disables itself gracefully if this collection doesn't exist |
 | `NICEGUI_STORAGE_SECRET` | No | Encrypts the web UI's per-browser-tab storage (default: a fixed dev value — set a real value in production) |
+| `FAKE_GEMINI` | No | Set to `true` to swap all Gemini calls for deterministic in-process fakes — no `GOOGLE_API_KEY` needed, no quota spent, Qdrant still used for real. Local/manual testing only — see [docs/recommender.md](docs/recommender.md#fake_gemini-local-testing-without-gemini-quota) |
 | `PYTHONPATH` | No | Set to the project root if running without `uv run` or the installed console scripts (`plex-rag`, `plex-rag-web`) |
 
 ### Install

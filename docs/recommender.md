@@ -209,3 +209,33 @@ to `BLOCK_NONE` — film content routinely trips default safety thresholds) and
 `GoogleGenerativeAIEmbeddings` with `gemini-embedding-001`, matching the
 pipeline's embedding model exactly (embeddings from a different model would
 not be comparable in the same Qdrant collection).
+
+### `FAKE_GEMINI` — local testing without Gemini quota
+
+Setting `FAKE_GEMINI=true` makes `build_recommender_service` and
+`build_diversity_service` (`app/bootstrap.py`) swap both Gemini clients for
+`FakeChatModel`/`DeterministicEmbeddings` (`app/adapters/fake_gemini.py`)
+instead of `ChatGoogleGenerativeAI`/`GoogleGenerativeAIEmbeddings`. Every
+other component — retrievers, `MovieRecommender`, the services, Qdrant — runs
+exactly as it does in production, so this exercises the CLI, web UI, and API
+end to end (session handling, coverage reporting, streaming, UI card
+rendering, poster/rating lookups) with real candidates from the real Qdrant
+collection, without spending Gemini quota or needing `GOOGLE_API_KEY` set at
+all.
+
+The fakes are deterministic, not realistic: `DeterministicEmbeddings` hashes
+text into unit vectors with no real semantic relationship, so Qdrant still
+returns *some* nearest neighbors but not relevant ones, and
+`FakeChatModel`'s recommendation cards are templated bodies built from
+whichever real `[tmdb_id: ...]` candidates the (semantically meaningless)
+retrieval actually surfaced — not real reasoning about fit. Recommendation
+*quality* can't be evaluated this way; only the surrounding plumbing can.
+This is why `evals/` (`evals/faithfulness_eval.py`, `evals/judge.py`) never
+reads `FAKE_GEMINI` — they build their own real Gemini clients independently
+of `app/bootstrap.py`, deliberately.
+
+Add a fake for a new `with_structured_output` schema in
+`app/adapters/fake_gemini.py`'s `FakeChatModel.with_structured_output` if one
+is ever added beyond `RecommendationResponse`/`TitleSelection` — it raises
+`NotImplementedError` for anything else rather than returning something
+structurally wrong.

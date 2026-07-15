@@ -40,6 +40,14 @@ class Settings(BaseSettings):
         default=_DEFAULT_CONVERSATIONS_DB_PATH, min_length=1
     )
 
+    # When true, app/bootstrap.py swaps every Gemini call (chat + embeddings)
+    # for a deterministic in-process fake (app/adapters/fake_gemini.py) — no
+    # network calls, no GOOGLE_API_KEY needed, no quota spent. Qdrant is still
+    # hit for real. For local/manual testing of the app's other parts only —
+    # evals/ never reads this, since faking the model under test would make
+    # those evals meaningless.
+    FAKE_GEMINI: bool = False
+
 
 settings = Settings()
 
@@ -48,3 +56,4 @@ QDRANT_COLLECTION = settings.QDRANT_COLLECTION
 QDRANT_WATCH_HISTORY_COLLECTION = settings.QDRANT_WATCH_HISTORY_COLLECTION
 NICEGUI_STORAGE_SECRET = settings.NICEGUI_STORAGE_SECRET
 CONVERSATIONS_DB_PATH = settings.CONVERSATIONS_DB_PATH
+FAKE_GEMINI = settings.FAKE_GEMINI

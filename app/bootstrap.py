@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 from langchain_core.embeddings import Embeddings
+from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_google_genai import (
     ChatGoogleGenerativeAI,
     GoogleGenerativeAIEmbeddings,
@@ -16,6 +17,7 @@ from tenacity import (
     wait_exponential_jitter,
 )
 
+from app.adapters.fake_gemini import DeterministicEmbeddings, FakeChatModel
 from app.adapters.generators import (
     GeminiConversationTitler,
     GeminiQueryRewriter,
@@ -27,7 +29,12 @@ from app.adapters.retrievers import (
     LLMEnrichmentRetriever,
     LLMKnowledgeRetriever,
 )
-from app.config import QDRANT_COLLECTION, QDRANT_URL, QDRANT_WATCH_HISTORY_COLLECTION
+from app.config import (
+    FAKE_GEMINI,
+    QDRANT_COLLECTION,
+    QDRANT_URL,
+    QDRANT_WATCH_HISTORY_COLLECTION,
+)
 from app.domain.diversity import DiversityRecommender
 from app.domain.ports import CandidateRetriever, ConversationTitler
 from app.domain.recommender import MovieRecommender
@@ -123,13 +130,27 @@ def build_recommender_service(
     (reusing the same `llm` instance rather than building a second Gemini
     client). `include_knowledge_retriever` adds `LLMKnowledgeRetriever`, which
     scans the full title list per turn — worth it for the CLI's
-    non-latency-sensitive usage, skipped by default for the web UI."""
-    embeddings = _DedupingEmbeddings(
-        GoogleGenerativeAIEmbeddings(model="gemini-embedding-001")
-    )
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-3.1-flash-lite", temperature=0, safety_settings=_SAFETY_OFF
-    )
+    non-latency-sensitive usage, skipped by default for the web UI. When
+    FAKE_GEMINI=true (app/config.py), both clients below are swapped for
+    deterministic in-process fakes (app/adapters/fake_gemini.py) — no Gemini
+    calls, no GOOGLE_API_KEY needed; Qdrant is still hit for real."""
+    llm: BaseChatModel
+    embeddings: Embeddings
+    if FAKE_GEMINI:
+        logger.warning(
+            "FAKE_GEMINI=true — using deterministic fakes instead of Gemini. No "
+            "LLM or embedding calls will be made; recommendations will not be "
+            "real. Qdrant is still used for real."
+        )
+        embeddings = _DedupingEmbeddings(DeterministicEmbeddings())
+        llm = FakeChatModel()
+    else:
+        embeddings = _DedupingEmbeddings(
+            GoogleGenerativeAIEmbeddings(model="gemini-embedding-001")
+        )
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-3.1-flash-lite", temperature=0, safety_settings=_SAFETY_OFF
+        )
 
     vector_store = connect_vector_store(QDRANT_URL, QDRANT_COLLECTION, embeddings)
     documents = load_synopsis_documents(vector_store, QDRANT_COLLECTION)
@@ -165,8 +186,13 @@ def build_diversity_service() -> DiversityRecommendationService | None:
     feature isn't, and `QdrantUnavailableError` here must disable the feature, not
     take down the whole app the way it would if raised during the main
     `connect_vector_store` call above. Callers (CLI, NiceGUI) treat `None` as
-    "feature unavailable" and say so, rather than crashing."""
-    embeddings = GoogleGenerativeAIEmbeddings(model="gemini-embedding-001")
+    "feature unavailable" and say so, rather than crashing. Also honors
+    FAKE_GEMINI — see `build_recommender_service`."""
+    embeddings: Embeddings = (
+        DeterministicEmbeddings()
+        if FAKE_GEMINI
+        else GoogleGenerativeAIEmbeddings(model="gemini-embedding-001")
+    )
 
     try:
         watch_history_store = connect_vector_store(
