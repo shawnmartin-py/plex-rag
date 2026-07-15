@@ -46,12 +46,21 @@ surprise` and the web UI's "Surprise me" button — is described in
     a thin wrapper over `ConversationalRecommendationService.chat_with_items`.
   - `POST /chat/reset` — `{session_id}` → `{reset: bool}`, clears that
     session's chat history.
+  - `POST /surprise` (added 2026-07-15 for the tvOS client) — no body →
+    `{answer: "", items}`, same response shape as `/chat` with `answer`
+    always empty (diversity picks carry no generated prose, matching the
+    web UI's "Surprise me"). Wraps `DiversityRecommendationService` via
+    `get_diversity_service` in `api_app/service_cache.py` — one lazily-built
+    process-wide instance, NOT session-keyed like chat: the service's only
+    state is its don't-repeat-a-pick exclusion set, which a single-user
+    deployment wants shared across every caller. 404 with a descriptive
+    `detail` both when the `watch_history` collection is unavailable
+    (`build_diversity_service` returned `None`) and when it exists but has
+    no recent entries (`NoWatchHistoryError`).
   - `GET /health` — liveness check.
 
   No streaming endpoint yet (unlike the web UI's `chat_with_items_stream`) —
-  not needed until a client actually wants partial results. No `surprise`/
-  diversity endpoint yet either; add one the same way if/when a client needs
-  it, following the `/chat` handler as the template.
+  not needed until a client actually wants partial results.
 
 All three entry points call `build_recommender_service` (`app/bootstrap.py`) — the
 single composition root that constructs the Gemini clients, connects to

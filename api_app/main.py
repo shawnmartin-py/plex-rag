@@ -1,3 +1,4 @@
+import asyncio
 import sys
 
 import uvicorn
@@ -11,8 +12,9 @@ from api_app.schemas import (
     ResetRequest,
     ResetResponse,
 )
-from api_app.service_cache import get_service, reset_session
+from api_app.service_cache import get_diversity_service, get_service, reset_session
 from app.config import QDRANT_COLLECTION, QDRANT_URL
+from app.domain.diversity import NoWatchHistoryError
 from app.repositories.vector_store import (
     QdrantUnavailableError,
     ensure_qdrant_reachable,
@@ -46,6 +48,28 @@ async def chat(request: ChatRequest) -> ChatResponse:
 @app.post("/chat/reset", response_model=ResetResponse)
 async def reset(request: ResetRequest) -> ResetResponse:
     return ResetResponse(reset=reset_session(request.session_id))
+
+
+# "Wildcards" in the tvOS client — the diversity/"palette cleanser" mode:
+# movies picked for being furthest from recent watch history, not for
+# matching a query. No request body (nothing to key off — see
+# service_cache.get_diversity_service's docstring on why this is one
+# process-wide instance rather than per-session), and answer is always ""
+# since, like the NiceGUI "Surprise me" button, picks here carry no
+# generated commentary — just the cards themselves.
+@app.post("/surprise", response_model=ChatResponse)
+async def surprise() -> ChatResponse:
+    service = await get_diversity_service()
+    if service is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Wildcards isn't available yet — no watch history has been indexed.",
+        )
+    try:
+        items = await asyncio.to_thread(service.recommend)
+    except NoWatchHistoryError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return ChatResponse(answer="", items=[MediaItemOut.from_domain(i) for i in items])
 
 
 def main() -> None:
