@@ -2,9 +2,10 @@
 
 This is the query-time half of the project: a multi-retriever RAG pipeline
 that turns a natural-language request into ranked movie recommendations drawn
-only from the user's own Plex library. It's exposed two ways — a CLI chat loop
-and a NiceGUI web UI — both of which wire up the same underlying pieces.
-Both entry points read **exclusively from the Qdrant collection**
+only from the user's own Plex library. It's exposed three ways — a CLI chat
+loop, a NiceGUI web UI, and a FastAPI HTTP API — all of which wire up the
+same underlying pieces.
+All three entry points read **exclusively from the Qdrant collection**
 `plex-ingest` owns, connecting via `QDRANT_URL` (server mode) per
 [docs/vector-store-contract.md](vector-store-contract.md) — there is no
 SQLite/`SqlMediaItems` dependency and no write path here anymore (that was a
@@ -30,8 +31,29 @@ surprise` and the web UI's "Surprise me" button — is described in
   is a thin module-level cache (keyed by `spoiler_free` toggle value) around
   the same builder the CLI uses; `nicegui_app/main.py` drives the chat UI and
   per-tab state, `nicegui_app/components.py` renders each response.
+- **API** — `plex-rag-api` (`api_app/main.py:main`, registered as a console
+  script, serves on port 8100 — distinct from NiceGUI's 8080 so both can run
+  at once — bound to `0.0.0.0` so LAN clients like the `plex-tvos` app can
+  reach it). Built for a native tvOS client, but framework-agnostic — any
+  HTTP client works. `api_app/service_cache.py` mirrors
+  `nicegui_app/service_cache.py`'s pattern but keys its cache by
+  `(session_id, spoiler_free)` instead of `spoiler_free` alone, since API
+  clients don't share NiceGUI's browser-tab/`app.storage` machinery: each
+  caller supplies its own `session_id` and gets its own
+  `ConversationalRecommendationService` and chat history, never shared across
+  sessions the way NiceGUI intentionally shares across tabs. Endpoints:
+  - `POST /chat` — `{session_id, message, spoiler_free?}` → `{answer, items}`,
+    a thin wrapper over `ConversationalRecommendationService.chat_with_items`.
+  - `POST /chat/reset` — `{session_id}` → `{reset: bool}`, clears that
+    session's chat history.
+  - `GET /health` — liveness check.
 
-Both entry points call `build_recommender_service` (`app/bootstrap.py`) — the
+  No streaming endpoint yet (unlike the web UI's `chat_with_items_stream`) —
+  not needed until a client actually wants partial results. No `surprise`/
+  diversity endpoint yet either; add one the same way if/when a client needs
+  it, following the `/chat` handler as the template.
+
+All three entry points call `build_recommender_service` (`app/bootstrap.py`) — the
 single composition root that constructs the Gemini clients, connects to
 Qdrant via `connect_vector_store` + `load_synopsis_documents`
 (`app/repositories/vector_store.py`), wires up the retriever stack,
@@ -43,8 +65,10 @@ poster/rating display) are both derived from the same
 `MediaItemLookup` port — no local database read anywhere in this path. The
 CLI passes `include_knowledge_retriever=True` to also wire in
 `LLMKnowledgeRetriever` (which needs the full movie title list) since
-terminal usage isn't latency-sensitive in the same way; the web UI leaves it
-off (the default) for a snappier browser experience.
+terminal usage isn't latency-sensitive in the same way; the web UI and the
+API both leave it off (the default) for a snappier response — a voice-driven
+tvOS client is exactly the kind of interactive, latency-sensitive caller the
+web UI's default was already tuned for.
 
 ## Architecture (`app/domain/`, `app/adapters/`, `app/services/`, `app/repositories/`)
 
@@ -178,7 +202,7 @@ button.
 
 ## Configuration
 
-Both entry points read `QDRANT_URL` / `QDRANT_COLLECTION` from
+All three entry points read `QDRANT_URL` / `QDRANT_COLLECTION` from
 `app/config.py`, and construct `ChatGoogleGenerativeAI` with
 `gemini-3.1-flash-lite` (temperature 0, all four Gemini safety categories set
 to `BLOCK_NONE` — film content routinely trips default safety thresholds) and
